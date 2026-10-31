@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SnapLoad Setup & Manager</title>
+  <link rel="stylesheet" href="/src/styles.css">
+</head>
+<body>
+  <div class="window-container">
+    <!-- Sidebar / Brand Header -->
+    <header class="app-header">
+      <div class="brand">
+        <svg class="brand-logo" viewBox="0 0 108 108" width="40" height="40" fill="none">
+          <defs>
+            <linearGradient id="setupLogoGrad" x1="0" y1="0" x2="108" y2="108" gradientUnits="userSpaceOnUse">
+              <stop offset="0%" stop-color="#00F2FE"/>
+              <stop offset="50%" stop-color="#6366F1"/>
+              <stop offset="100%" stop-color="#A855F7"/>
+            </linearGradient>
+          </defs>
+          <rect x="0" y="0" width="108" height="108" rx="24" fill="#0F172A"/>
+          <circle cx="54" cy="54" r="42" stroke="#00F2FE" stroke-opacity="0.25" stroke-width="1.5"/>
+          <path d="M66,32 C58,28 44,29 38,36 C34,41 35,49 42,53 L58,60 C64,63 66,67 64,72 C61,77 53,79 46,77 C41,75 37,71 36,67"
+                stroke="url(#setupLogoGrad)" stroke-width="8" stroke-linecap="round"/>
+          <path d="M54,40 L54,66 M44,56 L54,66 L64,56" stroke="#FFFFFF" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <div class="brand-text">
+          <h1>SnapLoad Setup</h1>
+          <span class="subtitle">Windows Desktop Ecosystem v1.0.0</span>
+        </div>
+      </div>
+      <div class="nav-tabs">
+        <button id="tab-install" class="nav-tab active">Installation</button>
+        <button id="tab-updates" class="nav-tab">Updates</button>
+        <button id="tab-manage" class="nav-tab">Maintenance</button>
+      </div>
+    </header>
+
+    <!-- Main Content Panels -->
+    <main class="content-body">
+      <!-- PANEL 1: Installation Wizard -->
+      <section id="panel-install" class="wizard-panel active">
+        <!-- Step 1: Welcome & Browser Detection -->
+        <div id="step-detect" class="wizard-step">
+          <h2>Detected Web Browsers</h2>
+          <p class="description">
+            SnapLoad integrates directly into your browser via Native Messaging. Select which browsers to configure:
+          </p>
+
+          <div id="browser-list" class="browser-grid">
+            <div class="loading-spinner">Detecting installed browsers...</div>
+          </div>
+
+          <div class="components-card">
+            <h3>Components to Install</h3>
+            <label class="checkbox-item disabled">
+              <input type="checkbox" checked disabled />
+              <div class="component-info">
+                <strong>SnapLoad Desktop Engine</strong>
+                <span>Native Messaging Host for browser communication</span>
+              </div>
+            </label>
+            <label class="checkbox-item">
+              <input type="checkbox" id="install-ytdlp" checked />
+              <div class="component-info">
+                <strong>yt-dlp Multimedia Extractor</strong>
+                <span>Official latest extractor core for YouTube, TikTok, Spotify & 1000+ sites</span>
+              </div>
+            </label>
+            <label class="checkbox-item">
+              <input type="checkbox" id="install-ffmpeg" checked />
+              <div class="component-info">
+                <strong>FFmpeg Audio Converter</strong>
+                <span>High-performance audio transcoding (MP3, FLAC, M4A, OPUS, WAV)</span>
+              </div>
+            </label>
+          </div>
+
+          <div class="action-footer">
+            <button id="start-install-btn" class="btn primary">
+              Install & Configure SnapLoad
+            </button>
+          </div>
+        </div>
+
+        <!-- Step 2: Progress & Execution -->
+        <div id="step-progress" class="wizard-step hidden">
+          <h2>Installing SnapLoad...</h2>
+          <p id="progress-status-text" class="description">Setting up application directories...</p>
+
+          <div class="progress-container">
+            <div id="install-progress-bar" class="progress-bar"></div>
+          </div>
+          <span id="progress-percent" class="percent-label">0%</span>
+
+          <div class="log-console">
+            <div id="install-logs"></div>
+          </div>
+        </div>
+
+        <!-- Step 3: Success & Extension Guidance -->
+        <div id="step-complete" class="wizard-step hidden">
+          <div class="success-banner">
+            <span class="success-icon">✓</span>
+            <h2>SnapLoad Successfully Installed!</h2>
+          </div>
+          <p class="description">
+            Desktop Engine and Native Messaging hosts have been configured. Now activate your browser extension:
+          </p>
+
+          <div class="extension-guide-cards">
+            <div class="guide-card">
+              <h4>Chromium Browsers</h4>
+              <p>Chrome, Edge, Brave, Opera</p>
+              <div class="guide-actions">
+                <button id="open-chrome-dir" class="btn secondary">Open Chrome Extension Folder</button>
+                <a href="https://chrome.google.com/webstore" target="_blank" class="btn outline">Web Store</a>
+              </div>
+            </div>
+
+            <div class="guide-card">
+              <h4>Mozilla Firefox</h4>
+              <p>Firefox & Firefox Developer Edition</p>
+              <div class="guide-actions">
+                <button id="open-firefox-dir" class="btn secondary">Open Firefox Extension Folder</button>
+                <a href="https://addons.mozilla.org" target="_blank" class="btn outline">AMO Store</a>
+              </div>
+            </div>
+          </div>
+
+          <div class="action-footer">
+            <button id="finish-btn" class="btn primary">Finish Setup</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- PANEL 2: Updates Check -->
+      <section id="panel-updates" class="wizard-panel">
+        <h2>SnapLoad Updates Center</h2>
+        <p class="description">Check and update SnapLoad Engine, yt-dlp core, and FFmpeg independently:</p>
+
+        <div class="update-cards-container">
+          <div class="update-card" id="card-engine">
+            <div class="update-header">
+              <strong>SnapLoad Desktop Engine</strong>
+              <span id="engine-cur-ver" class="badge">Checking...</span>
+            </div>
+            <p id="engine-update-msg">Loading version information...</p>
+          </div>
+
+          <div class="update-card" id="card-ytdlp">
+            <div class="update-header">
+              <strong>yt-dlp Core Extractor</strong>
+              <span id="ytdlp-cur-ver" class="badge">Checking...</span>
+            </div>
+            <p id="ytdlp-update-msg">Loading extractor release...</p>
+          </div>
+
+          <div class="update-card" id="card-ffmpeg">
+            <div class="update-header">
+              <strong>FFmpeg Media Converter</strong>
+              <span id="ffmpeg-cur-ver" class="badge">Checking...</span>
+            </div>
+            <p id="ffmpeg-update-msg">Loading FFmpeg release...</p>
+          </div>
+        </div>
+
+        <div class="action-footer">
+          <button id="check-updates-btn" class="btn primary">Check for Updates Now</button>
+        </div>
+      </section>
+
+      <!-- PANEL 3: Maintenance & Uninstall -->
+      <section id="panel-manage" class="wizard-panel">
+        <h2>System Maintenance & Diagnostics</h2>
+        <p class="description">Verify installation integrity or cleanly uninstall SnapLoad:</p>
+
+        <div class="diag-card">
+          <h3>Installation Integrity</h3>
+          <ul id="diag-list" class="diag-list">
+            <li>Checking configuration...</li>
+          </ul>
+          <button id="run-verify-btn" class="btn secondary">Verify Installation Now</button>
+        </div>
+
+        <div class="uninstall-card">
+          <h3>Uninstallation</h3>
+          <p>
+            Remove all SnapLoad engine binaries, Native Messaging registrations, and configuration.
+            <em>Your downloaded media in Downloads\SnapLoad will never be deleted.</em>
+          </p>
+          <button id="uninstall-btn" class="btn danger">Clean Uninstall SnapLoad</button>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>

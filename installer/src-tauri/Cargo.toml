@@ -1,0 +1,29 @@
+[package]
+name = "snapload-setup"
+version = "1.0.0"
+description = "SnapLoad Windows Graphical Installer & Desktop Manager"
+authors = ["DarkSkyee"]
+edition = "2021"
+license = "MIT-NC"
+
+[lib]
+name = "snapload_setup_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.0", features = [] }
+
+[dependencies]
+tauri = { version = "2.1", features = [] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tokio = { version = "1.38", features = ["rt-multi-thread", "macros", "fs", "io-util", "process"] }
+winreg = "0.52"
+sha2 = "0.10"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
