@@ -13,6 +13,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
       - name: Run Engine Tests
         run: |
           cd engine
@@ -41,15 +43,20 @@ jobs:
           npm run build
 
   installer-build:
-    name: Installer Frontend & Verification
+    name: Installer Build & Verification
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-      - name: Build Installer UI
+      - name: Build Installer UI & Binary
         run: |
           cd installer
           npm ci || npm install
           npm run build
+          cd src-tauri
+          cargo build --release

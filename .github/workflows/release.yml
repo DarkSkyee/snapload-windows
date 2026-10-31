@@ -4,6 +4,12 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to build and publish'
+        required: false
+        default: 'v1.0.0'
 
 permissions:
   contents: write
@@ -15,6 +21,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
       - uses: actions/setup-node@v4
         with:
           node-version: 20
@@ -32,11 +40,13 @@ jobs:
           Compress-Archive -Path dist/chrome/* -DestinationPath dist/snapload-extension-chromium.zip
           Compress-Archive -Path dist/firefox/* -DestinationPath dist/snapload-extension-firefox.zip
 
-      - name: Build Installer
+      - name: Build Installer (Tauri & Rust)
         run: |
           cd installer
           npm ci || npm install
           npm run build
+          cd src-tauri
+          cargo build --release
 
       - name: Generate Release Manifest
         shell: pwsh
@@ -46,11 +56,12 @@ jobs:
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ github.ref_name || inputs.tag || 'v1.0.0' }}
           files: |
             engine/target/release/snapload-engine.exe
+            installer/src-tauri/target/release/snapload-setup.exe
             extension/dist/snapload-extension-chromium.zip
             extension/dist/snapload-extension-firefox.zip
             release_manifest.json
           draft: false
           prerelease: false
-          generate_release_notes: true
