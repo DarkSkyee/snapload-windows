@@ -143,9 +143,11 @@ function injectButton() {
 }
 
 function initNavigationListener() {
-  // YouTube SPA event
   window.addEventListener("yt-navigate-finish", () => {
-    if (window.location.href !== lastUrl) {
+    if (!window.location.pathname.startsWith("/watch")) {
+      const existing = document.getElementById(BUTTON_ID);
+      if (existing) existing.remove();
+    } else if (window.location.href !== lastUrl) {
       lastUrl = window.location.href;
       // Re-evaluate button injection after YouTube DOM settles
       setTimeout(injectButton, 300);

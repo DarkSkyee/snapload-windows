@@ -196,7 +196,9 @@ function checkEngineStatus() {
 
 // Listen for push notifications from background script
 api.runtime.onMessage.addListener((message: any) => {
-  if (message.type === "ENGINE_EVENT" || message.type === "ENGINE_STATUS") {
+  if (message.type === "ENGINE_EVENT") {
+    refreshActiveDownloads();
+  } else if (message.type === "ENGINE_STATUS") {
     checkEngineStatus();
     refreshActiveDownloads();
   }

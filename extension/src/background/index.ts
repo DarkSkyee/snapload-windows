@@ -121,6 +121,27 @@ function handleNativeMessage(response: EngineResponse<any>) {
       break;
     }
 
+    case "error": {
+      const errMsg = response.error?.message || (response.error as any)?.code || "SnapLoad Engine Error";
+      if (current) {
+        current.error = errMsg;
+        current.status = "Failed";
+      } else if (downloadId && downloadId !== "null") {
+        activeDownloads.set(downloadId, {
+          id: downloadId,
+          url: "",
+          percent: 0,
+          speed: "",
+          eta: "",
+          status: "Failed",
+          error: errMsg,
+        });
+      }
+      updateBadge();
+      showNotification("SnapLoad Error", errMsg);
+      break;
+    }
+
     case "download_cancelled": {
       activeDownloads.delete(downloadId);
       updateBadge();
@@ -129,24 +150,29 @@ function handleNativeMessage(response: EngineResponse<any>) {
     }
   }
 
-  // Relay event to active popup
-  api.runtime.sendMessage({
-    type: "ENGINE_EVENT",
-    payload: response,
-  }).catch(() => {
-    // Popup might be closed, which is normal
-  });
+  // Relay event to active popup (skip ping/pong to avoid triggering ping cascades)
+  if (response.type !== "pong") {
+    api.runtime.sendMessage({
+      type: "ENGINE_EVENT",
+      payload: response,
+    }).catch(() => {
+      // Popup might be closed, which is normal
+    });
+  }
 }
 
 function updateBadge() {
   const activeList = Array.from(activeDownloads.values()).filter(d => !d.completed && !d.error);
+  const actionApi = api.action || (api as any).browserAction;
+  if (!actionApi) return;
+
   if (activeList.length === 0) {
-    api.action?.setBadgeText({ text: "" });
+    actionApi.setBadgeText({ text: "" });
     return;
   }
   const avgPercent = Math.round(activeList.reduce((acc, d) => acc + d.percent, 0) / activeList.length);
-  api.action?.setBadgeText({ text: `${avgPercent}%` });
-  api.action?.setBadgeBackgroundColor({ color: "#00F2FE" });
+  actionApi.setBadgeText({ text: `${avgPercent}%` });
+  actionApi.setBadgeBackgroundColor({ color: "#00F2FE" });
 }
 
 function showNotification(title: string, message: string) {
