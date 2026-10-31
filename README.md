@@ -1,19 +1,39 @@
 # SnapLoad (Windows)
 
 <p align="center">
-  <img src="docs/assets/logo.svg" width="140" height="140" alt="SnapLoad Windows Logo" />
+  <a href="https://github.com/DarkSkyee/snapload-windows/releases">
+    <img src="https://img.shields.io/github/downloads/DarkSkyee/snapload-windows/total?style=for-the-badge&logo=github&color=10B981" alt="Total Downloads" />
+  </a>
+  <a href="https://github.com/DarkSkyee/snapload-windows/stargazers">
+    <img src="https://img.shields.io/github/stars/DarkSkyee/snapload-windows?style=for-the-badge&logo=github&color=F59E0B" alt="GitHub Stars" />
+  </a>
+  <a href="https://github.com/DarkSkyee/snapload-windows/releases/latest">
+    <img src="https://img.shields.io/github/v/release/DarkSkyee/snapload-windows?style=for-the-badge&logo=github&color=6366F1" alt="Latest Release" />
+  </a>
+  <a href="LICENSE">
+    <img src="https://img.shields.io/badge/License-Non--Commercial%20(Attribution)-orange.svg?style=for-the-badge" alt="License" />
+  </a>
 </p>
 
 <p align="center">
-  <a href="https://github.com/DarkSkyee/snapload-windows/releases">
-    <img src="https://img.shields.io/github/v/release/DarkSkyee/snapload-windows?style=for-the-badge&logo=github&color=6366F1" alt="Latest Release" />
-  </a>
   <img src="https://img.shields.io/badge/Platform-Windows%2010%20%2F%2011%20(64--bit)-0078D6?style=for-the-badge&logo=windows&logoColor=white" alt="Windows 64-bit" />
   <img src="https://img.shields.io/badge/Engine-Rust%202021-DEA584?style=for-the-badge&logo=rust&logoColor=black" alt="Rust" />
   <img src="https://img.shields.io/badge/GUI-Tauri%202-FFC131?style=for-the-badge&logo=tauri&logoColor=black" alt="Tauri 2" />
   <img src="https://img.shields.io/badge/Extension-TypeScript%20MV3-3178C6?style=for-the-badge&logo=typescript&logoColor=white" alt="TypeScript" />
-  <a href="LICENSE">
-    <img src="https://img.shields.io/badge/License-Non--Commercial%20(Attribution)-orange.svg?style=for-the-badge" alt="License" />
+  <a href="https://github.com/yt-dlp/yt-dlp">
+    <img src="https://img.shields.io/badge/Core-yt--dlp%20Engine-FF0000?style=for-the-badge&logo=youtube&logoColor=white" alt="yt-dlp" />
+  </a>
+</p>
+
+<br/>
+
+<p align="center">
+  <img src="docs/assets/logo.svg" width="160" height="160" alt="SnapLoad Windows Logo" />
+</p>
+
+<p align="center">
+  <a href="https://github.com/DarkSkyee/snapload-windows/releases/latest">
+    <img src="https://img.shields.io/badge/%E2%AC%87%EF%B8%8F%20Download-Latest%20Release-6366F1?style=for-the-badge&logo=windows&logoColor=white" height="42" alt="Download Latest Release" />
   </a>
 </p>
 
