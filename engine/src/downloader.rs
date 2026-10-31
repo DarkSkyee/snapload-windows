@@ -55,7 +55,7 @@ impl DownloadManager {
 
     pub fn validate_url(raw_url: &str) -> Result<String, &'static str> {
         let trimmed = raw_url.trim();
-        if trimmed.empty() {
+        if trimmed.is_empty() {
             return Err("URL is empty");
         }
         if trimmed.starts_with('-') {
@@ -163,7 +163,7 @@ impl DownloadManager {
     }
 
     async fn execute_download(
-        self,
+        &self,
         download_id: String,
         url: String,
         payload: StartDownloadPayload,
@@ -178,8 +178,8 @@ impl DownloadManager {
         let audio_fmt = payload.audio_format.unwrap_or(AudioFormat::Mp3);
         let audio_qual = payload.audio_quality.unwrap_or(AudioQuality::Best);
 
-        let unique_prefix = format!("snapload_{}", &download_id[..std::cmp::min(8, download_id.len())]);
-        let output_template = output_dir.join(format!("{}.%(ext)s", unique_prefix));
+        let unique_prefix = format!("snapload_{}", download_id);
+        let output_template = output_dir.join(format!("{}_%(title).100s.%(ext)s", unique_prefix));
 
         let mut args: Vec<String> = vec![
             "-o".to_string(),
@@ -190,11 +190,22 @@ impl DownloadManager {
             "100".to_string(),
             "--restrict-filenames".to_string(),
             "--newline".to_string(),
+            "--no-colors".to_string(),
             "--progress-template".to_string(),
             "SNAPLOAD_PROG|%(progress._percent_str)s|%(progress._eta_str)s|%(progress._speed_str)s|%(progress.total_bytes)s|%(progress.downloaded_bytes)s".to_string(),
         ];
 
-        if let Some(ffmpeg) = &ffmpeg_path {
+        // Custom cookies support
+        if let Some(cookie_file) = payload.cookies_file {
+            let cookie_path = PathBuf::from(cookie_file);
+            if cookie_path.exists() {
+                args.push("--cookies".to_string());
+                args.push(cookie_path.to_string_lossy().to_string());
+            }
+        }
+
+        // FFmpeg integration
+        if let Some(ref ffmpeg) = ffmpeg_path {
             if let Some(dir) = ffmpeg.parent() {
                 args.push("--ffmpeg-location".to_string());
                 args.push(dir.to_string_lossy().to_string());
@@ -283,7 +294,10 @@ impl DownloadManager {
 
         let wait_result = tokio::select! {
             res = child.wait() => Ok(res),
-            _ = &mut cancel_rx => Err("cancelled"),
+            _ = &mut cancel_rx => {
+                let _ = child.kill().await;
+                Err("cancelled")
+            }
         };
 
         let _ = stdout_handle.await;
@@ -384,20 +398,22 @@ impl DownloadManager {
             "--trim-filenames".to_string(),
             "100".to_string(),
             "--restrict-filenames".to_string(),
+            "--no-colors".to_string(),
             "-x".to_string(),
             "--audio-format".to_string(),
             "mp3".to_string(),
             "--audio-quality".to_string(),
             "0".to_string(),
-            url,
         ];
 
         if let Some(ffmpeg) = ffmpeg_path {
             if let Some(dir) = ffmpeg.parent() {
-                args.insert(args.len() - 1, dir.to_string_lossy().to_string());
-                args.insert(args.len() - 2, "--ffmpeg-location".to_string());
+                args.push("--ffmpeg-location".to_string());
+                args.push(dir.to_string_lossy().to_string());
             }
         }
+
+        args.push(url);
 
         let mut cmd = Command::new(&ytdlp_path);
         cmd.args(&args);
