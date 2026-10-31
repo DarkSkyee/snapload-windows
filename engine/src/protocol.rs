@@ -106,6 +106,8 @@ pub struct StartDownloadPayload {
     pub audio_quality: Option<AudioQuality>,
     #[serde(default)]
     pub custom_output_dir: Option<String>,
+    #[serde(default)]
+    pub cookies_file: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
