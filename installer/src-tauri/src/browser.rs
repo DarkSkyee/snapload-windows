@@ -111,7 +111,10 @@ impl BrowserDetector {
         if let Some(local) = std::env::var_os("LOCALAPPDATA") {
             candidates.push(PathBuf::from(local).join("Google\\Chrome\\Application\\chrome.exe"));
         }
-        Self::check_reg_or_file(r"Software\Microsoft\Windows\CurrentVersion\App Paths\chrome.exe", &candidates)
+        Self::check_reg_or_file(
+            r"Software\Microsoft\Windows\CurrentVersion\App Paths\chrome.exe",
+            &candidates,
+        )
     }
 
     fn find_edge() -> Option<String> {
@@ -122,18 +125,28 @@ impl BrowserDetector {
         if let Some(prog) = std::env::var_os("ProgramFiles") {
             candidates.push(PathBuf::from(prog).join("Microsoft\\Edge\\Application\\msedge.exe"));
         }
-        Self::check_reg_or_file(r"Software\Microsoft\Windows\CurrentVersion\App Paths\msedge.exe", &candidates)
+        Self::check_reg_or_file(
+            r"Software\Microsoft\Windows\CurrentVersion\App Paths\msedge.exe",
+            &candidates,
+        )
     }
 
     fn find_brave() -> Option<String> {
         let mut candidates = Vec::new();
         if let Some(prog) = std::env::var_os("ProgramFiles") {
-            candidates.push(PathBuf::from(prog).join("BraveSoftware\\Brave-Browser\\Application\\brave.exe"));
+            candidates.push(
+                PathBuf::from(prog).join("BraveSoftware\\Brave-Browser\\Application\\brave.exe"),
+            );
         }
         if let Some(local) = std::env::var_os("LOCALAPPDATA") {
-            candidates.push(PathBuf::from(local).join("BraveSoftware\\Brave-Browser\\Application\\brave.exe"));
+            candidates.push(
+                PathBuf::from(local).join("BraveSoftware\\Brave-Browser\\Application\\brave.exe"),
+            );
         }
-        Self::check_reg_or_file(r"Software\Microsoft\Windows\CurrentVersion\App Paths\brave.exe", &candidates)
+        Self::check_reg_or_file(
+            r"Software\Microsoft\Windows\CurrentVersion\App Paths\brave.exe",
+            &candidates,
+        )
     }
 
     fn find_opera() -> Option<String> {
@@ -144,7 +157,10 @@ impl BrowserDetector {
         if let Some(prog) = std::env::var_os("ProgramFiles") {
             candidates.push(PathBuf::from(prog).join("Opera\\launcher.exe"));
         }
-        Self::check_reg_or_file(r"Software\Microsoft\Windows\CurrentVersion\App Paths\opera.exe", &candidates)
+        Self::check_reg_or_file(
+            r"Software\Microsoft\Windows\CurrentVersion\App Paths\opera.exe",
+            &candidates,
+        )
     }
 
     fn find_firefox() -> Option<String> {
@@ -155,6 +171,9 @@ impl BrowserDetector {
         if let Some(prog86) = std::env::var_os("ProgramFiles(x86)") {
             candidates.push(PathBuf::from(prog86).join("Mozilla Firefox\\firefox.exe"));
         }
-        Self::check_reg_or_file(r"Software\Microsoft\Windows\CurrentVersion\App Paths\firefox.exe", &candidates)
+        Self::check_reg_or_file(
+            r"Software\Microsoft\Windows\CurrentVersion\App Paths\firefox.exe",
+            &candidates,
+        )
     }
 }

@@ -91,8 +91,14 @@ impl UpdateChecker {
                 {
                     if !expected_hash.is_empty() {
                         match Self::verify_file_hash(&engine_path, expected_hash) {
-                            Ok(true) => format!("SnapLoad Engine v{} verified (SHA-256 match)", manifest_version),
-                            Ok(false) => format!("SnapLoad Engine v{} installed (SHA-256 updated)", manifest_version),
+                            Ok(true) => format!(
+                                "SnapLoad Engine v{} verified (SHA-256 match)",
+                                manifest_version
+                            ),
+                            Ok(false) => format!(
+                                "SnapLoad Engine v{} installed (SHA-256 updated)",
+                                manifest_version
+                            ),
                             Err(_) => format!("SnapLoad Engine v{} installed", manifest_version),
                         }
                     } else {
@@ -112,7 +118,14 @@ impl UpdateChecker {
         let ytdlp_status = if let Some(ref dir) = bin_dir {
             let ytdlp_path = dir.join("yt-dlp.exe");
             if ytdlp_path.exists() {
-                match timeout(Duration::from_secs(3), tokio::process::Command::new(&ytdlp_path).arg("--version").output()).await {
+                match timeout(
+                    Duration::from_secs(3),
+                    tokio::process::Command::new(&ytdlp_path)
+                        .arg("--version")
+                        .output(),
+                )
+                .await
+                {
                     Ok(Ok(output)) if output.status.success() => {
                         let ver = String::from_utf8_lossy(&output.stdout).trim().to_string();
                         format!("yt-dlp release {} is installed", ver)

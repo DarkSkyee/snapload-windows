@@ -1,5 +1,6 @@
 {
   "manifest_version": 3,
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAuEZZHQqsjY3wcoOpBzLkrRQk/GKwFUz5kaPsblAL1f8ubq5Vz7zxi61+4CN5Ih4EiGx6E+2zWcTmnLsoSyPpWQOAFkPkI9kadGg6MQWvAJBlndjGqkzkUt+19Dmguy0DAFb+Cxe/wVb4i7L2f8HMFUdcy8gFiPc4Sgb9qsAuNM/roSEPZtj5KlFjRKSZF2bWauaZEHMw4DvPuVCfdW6UXpzSRV/ST+B9BlPMkOipATzSxVo//dzgL3Ks9t3nixDBRA+uE0duC/nOvsTRA4x3inOuxf37q2DoicWrBrqcGWhv33mCbwjcramionRKOXVw8I2AHWBKp8MUGkKfgHRfmQIDAQAB",
   "name": "SnapLoad — Instant Media Downloader",
   "version": "1.0.0",
   "description": "Download videos and audio directly with SnapLoad Desktop Engine.",

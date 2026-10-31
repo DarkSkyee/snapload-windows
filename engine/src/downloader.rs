@@ -46,6 +46,12 @@ pub struct DownloadManager {
     active_downloads: Arc<Mutex<HashMap<String, ActiveDownload>>>,
 }
 
+impl Default for DownloadManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl DownloadManager {
     pub fn new() -> Self {
         Self {
@@ -54,6 +60,9 @@ impl DownloadManager {
     }
 
     pub fn validate_url(raw_url: &str) -> Result<String, &'static str> {
+        if raw_url.contains('\0') || raw_url.contains('\r') || raw_url.contains('\n') {
+            return Err("URL contains forbidden control characters");
+        }
         let trimmed = raw_url.trim();
         if trimmed.is_empty() {
             return Err("URL is empty");
@@ -72,10 +81,79 @@ impl DownloadManager {
         Ok(trimmed.to_string())
     }
 
+    pub fn validate_output_dir(path_str: &str) -> Result<PathBuf, &'static str> {
+        if path_str.contains('\0') || path_str.contains('\r') || path_str.contains('\n') {
+            return Err("Custom output directory contains forbidden control characters");
+        }
+        let trimmed = path_str.trim();
+        if trimmed.is_empty() {
+            return Err("Custom output directory cannot be empty");
+        }
+        if trimmed.starts_with(r"\\") || trimmed.starts_with("//") {
+            return Err("UNC network paths are not permitted");
+        }
+        if trimmed.contains("..") {
+            return Err(
+                "Custom output directory must not contain path traversal components ('..')",
+            );
+        }
+        let p = Path::new(trimmed);
+        if !p.is_absolute() {
+            return Err("Custom output directory must be an absolute path");
+        }
+        let s = trimmed.as_bytes();
+        if !(s.len() >= 3
+            && s[0].is_ascii_alphabetic()
+            && s[1] == b':'
+            && (s[2] == b'\\' || s[2] == b'/'))
+        {
+            return Err("Custom output directory must be a local drive path (e.g. C:\\...)");
+        }
+        Ok(PathBuf::from(trimmed))
+    }
+
+    pub fn validate_cookies_file(file_str: &str) -> Result<PathBuf, &'static str> {
+        if file_str.contains('\0') || file_str.contains('\r') || file_str.contains('\n') {
+            return Err("Cookies file contains forbidden control characters");
+        }
+        let trimmed = file_str.trim();
+        if trimmed.is_empty() {
+            return Err("Cookies file path cannot be empty");
+        }
+        if trimmed.starts_with('-') {
+            return Err("Cookies file cannot start with a hyphen or flag prefix");
+        }
+        if trimmed.starts_with(r"\\") || trimmed.starts_with("//") {
+            return Err("UNC network paths are not permitted for cookies");
+        }
+        if trimmed.contains("..") {
+            return Err("Cookies file must not contain path traversal ('..')");
+        }
+        let p = Path::new(trimmed);
+        if !p.is_absolute() {
+            return Err("Cookies file path must be an absolute path");
+        }
+        let s = trimmed.as_bytes();
+        if !(s.len() >= 3
+            && s[0].is_ascii_alphabetic()
+            && s[1] == b':'
+            && (s[2] == b'\\' || s[2] == b'/'))
+        {
+            return Err("Cookies file must be on a local drive (e.g. C:\\...)");
+        }
+        if !p.is_file() {
+            return Err("Cookies file does not exist or is not a regular file");
+        }
+        Ok(p.to_path_buf())
+    }
+
     pub async fn cancel_download(&self, download_id: &str) -> bool {
         let mut map = self.active_downloads.lock().await;
         if let Some(mut active) = map.remove(download_id) {
-            Logger::info(&format!("Cancelling download {}, killing PID {}", download_id, active.child_id));
+            Logger::info(&format!(
+                "Cancelling download {}, killing PID {}",
+                download_id, active.child_id
+            ));
             if let Some(tx) = active.cancel_tx.take() {
                 let _ = tx.send(());
             }
@@ -83,7 +161,7 @@ impl DownloadManager {
             {
                 // Force kill process tree on Windows using taskkill
                 let _ = Command::new("taskkill")
-                    .args(&["/F", "/T", "/PID", &active.child_id.to_string()])
+                    .args(["/F", "/T", "/PID", &active.child_id.to_string()])
                     .output()
                     .await;
             }
@@ -100,12 +178,57 @@ impl DownloadManager {
         response_tx: mpsc::Sender<EngineResponse>,
     ) {
         let download_id = request_id.clone();
+        if !download_id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+            || download_id.is_empty()
+        {
+            let _ = response_tx
+                .send(EngineResponse::err(
+                    &download_id,
+                    "INVALID_ID",
+                    "Download ID must contain only alphanumeric characters, hyphens, and underscores",
+                ))
+                .await;
+            return;
+        }
+
         let valid_url = match Self::validate_url(&payload.url) {
             Ok(u) => u,
             Err(e) => {
-                let _ = response_tx.send(EngineResponse::err(&download_id, "INVALID_URL", e)).await;
+                let _ = response_tx
+                    .send(EngineResponse::err(&download_id, "INVALID_URL", e))
+                    .await;
                 return;
             }
+        };
+
+        let output_dir = if let Some(ref custom) = payload.custom_output_dir {
+            match Self::validate_output_dir(custom) {
+                Ok(p) => p,
+                Err(e) => {
+                    let _ = response_tx
+                        .send(EngineResponse::err(&download_id, "INVALID_PATH", e))
+                        .await;
+                    return;
+                }
+            }
+        } else {
+            config.download_directory.clone()
+        };
+
+        let validated_cookies = if let Some(ref cf) = payload.cookies_file {
+            match Self::validate_cookies_file(cf) {
+                Ok(p) => Some(p),
+                Err(e) => {
+                    let _ = response_tx
+                        .send(EngineResponse::err(&download_id, "INVALID_COOKIES", e))
+                        .await;
+                    return;
+                }
+            }
+        } else {
+            None
         };
 
         let ytdlp_path = match DependencyManager::find_ytdlp(&config) {
@@ -122,51 +245,54 @@ impl DownloadManager {
 
         let ffmpeg_path = DependencyManager::find_ffmpeg(&config);
 
-        let output_dir = if let Some(ref custom) = payload.custom_output_dir {
-            PathBuf::from(custom)
-        } else {
-            config.download_directory.clone()
-        };
-
         if let Err(e) = fs::create_dir_all(&output_dir) {
-            let _ = response_tx.send(EngineResponse::err(
-                &download_id,
-                "IO_ERROR",
-                &format!("Failed to create download directory: {}", e),
-            )).await;
+            let _ = response_tx
+                .send(EngineResponse::err(
+                    &download_id,
+                    "IO_ERROR",
+                    &format!("Failed to create download directory: {}", e),
+                ))
+                .await;
             return;
         }
 
         // Notify client download has started
-        let _ = response_tx.send(EngineResponse::ok(
-            &download_id,
-            ResponseType::DownloadStarted,
-            serde_json::json!({
-                "download_id": &download_id,
-                "url": &valid_url,
-                "output_dir": output_dir.to_string_lossy(),
-            }),
-        )).await;
+        let _ = response_tx
+            .send(EngineResponse::ok(
+                &download_id,
+                ResponseType::DownloadStarted,
+                serde_json::json!({
+                    "download_id": &download_id,
+                    "url": &valid_url,
+                    "output_dir": output_dir.to_string_lossy(),
+                }),
+            ))
+            .await;
 
         let manager = self.clone();
         tokio::spawn(async move {
-            manager.execute_download(
-                download_id,
-                valid_url,
-                payload,
-                ytdlp_path,
-                ffmpeg_path,
-                output_dir,
-                response_tx,
-            ).await;
+            manager
+                .execute_download(
+                    download_id,
+                    valid_url,
+                    payload,
+                    validated_cookies,
+                    ytdlp_path,
+                    ffmpeg_path,
+                    output_dir,
+                    response_tx,
+                )
+                .await;
         });
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn execute_download(
         &self,
         download_id: String,
         url: String,
         payload: StartDownloadPayload,
+        validated_cookies: Option<PathBuf>,
         ytdlp_path: PathBuf,
         ffmpeg_path: Option<PathBuf>,
         output_dir: PathBuf,
@@ -195,13 +321,10 @@ impl DownloadManager {
             "SNAPLOAD_PROG|%(progress._percent_str)s|%(progress._eta_str)s|%(progress._speed_str)s|%(progress.total_bytes)s|%(progress.downloaded_bytes)s".to_string(),
         ];
 
-        // Custom cookies support
-        if let Some(cookie_file) = payload.cookies_file {
-            let cookie_path = PathBuf::from(cookie_file);
-            if cookie_path.exists() {
-                args.push("--cookies".to_string());
-                args.push(cookie_path.to_string_lossy().to_string());
-            }
+        // Custom cookies support (pre-validated against flags, traversal, and UNC paths)
+        if let Some(ref cp) = validated_cookies {
+            args.push("--cookies".to_string());
+            args.push(cp.to_string_lossy().to_string());
         }
 
         // FFmpeg integration
@@ -227,6 +350,8 @@ impl DownloadManager {
             args.push(audio_qual.ytdl_quality().to_string());
         }
 
+        // Positional argument delimiter prevents option parsing confusion
+        args.push("--".to_string());
         args.push(url.clone());
 
         Logger::info(&format!("Spawning yt-dlp for {}: {:?}", download_id, args));
@@ -241,7 +366,13 @@ impl DownloadManager {
             Ok(c) => c,
             Err(e) => {
                 Logger::error(&format!("Failed to spawn yt-dlp: {}", e));
-                let _ = response_tx.send(EngineResponse::err(&download_id, "SPAWN_FAILED", &e.to_string())).await;
+                let _ = response_tx
+                    .send(EngineResponse::err(
+                        &download_id,
+                        "SPAWN_FAILED",
+                        &e.to_string(),
+                    ))
+                    .await;
                 return;
             }
         };
@@ -251,10 +382,13 @@ impl DownloadManager {
 
         {
             let mut map = self.active_downloads.lock().await;
-            map.insert(download_id.clone(), ActiveDownload {
-                child_id: child_pid,
-                cancel_tx: Some(cancel_tx),
-            });
+            map.insert(
+                download_id.clone(),
+                ActiveDownload {
+                    child_id: child_pid,
+                    cancel_tx: Some(cancel_tx),
+                },
+            );
         }
 
         let stdout = child.stdout.take();
@@ -269,11 +403,13 @@ impl DownloadManager {
                 let mut reader = BufReader::new(pipe).lines();
                 while let Ok(Some(line)) = reader.next_line().await {
                     if let Some(prog) = Self::parse_progress_line(&id_prog, &line) {
-                        let _ = tx_progress.send(EngineResponse::ok(
-                            &id_prog,
-                            ResponseType::DownloadProgress,
-                            serde_json::to_value(prog).unwrap_or_default(),
-                        )).await;
+                        let _ = tx_progress
+                            .send(EngineResponse::ok(
+                                &id_prog,
+                                ResponseType::DownloadProgress,
+                                serde_json::to_value(prog).unwrap_or_default(),
+                            ))
+                            .await;
                     }
                 }
             }
@@ -311,27 +447,35 @@ impl DownloadManager {
 
         match wait_result {
             Ok(Ok(status)) if status.success() => {
-                Logger::info(&format!("Download {} completed with exit status success", download_id));
+                Logger::info(&format!(
+                    "Download {} completed with exit status success",
+                    download_id
+                ));
                 // Locate the finished file
                 if let Some(file_info) = Self::find_output_file(&output_dir, &unique_prefix) {
-                    let _ = response_tx.send(EngineResponse::ok(
-                        &download_id,
-                        ResponseType::DownloadCompleted,
-                        serde_json::to_value(CompletedPayload {
-                            download_id: download_id.clone(),
-                            file_path: file_info.path.to_string_lossy().to_string(),
-                            file_name: file_info.name,
-                            file_size_bytes: file_info.size,
-                            extension: file_info.extension,
-                            fallback_to_audio: false,
-                        }).unwrap_or_default(),
-                    )).await;
+                    let _ = response_tx
+                        .send(EngineResponse::ok(
+                            &download_id,
+                            ResponseType::DownloadCompleted,
+                            serde_json::to_value(CompletedPayload {
+                                download_id: download_id.clone(),
+                                file_path: file_info.path.to_string_lossy().to_string(),
+                                file_name: file_info.name,
+                                file_size_bytes: file_info.size,
+                                extension: file_info.extension,
+                                fallback_to_audio: false,
+                            })
+                            .unwrap_or_default(),
+                        ))
+                        .await;
                 } else {
-                    let _ = response_tx.send(EngineResponse::err(
-                        &download_id,
-                        "FILE_NOT_FOUND",
-                        "yt-dlp finished but the output file could not be verified on disk.",
-                    )).await;
+                    let _ = response_tx
+                        .send(EngineResponse::err(
+                            &download_id,
+                            "FILE_NOT_FOUND",
+                            "yt-dlp finished but the output file could not be verified on disk.",
+                        ))
+                        .await;
                 }
             }
             Ok(Ok(status)) => {
@@ -339,50 +483,71 @@ impl DownloadManager {
                 Logger::error(&format!("yt-dlp failed (status {}): {}", status, err_msg));
 
                 // Check for fallback condition (e.g. video requested but source is audio-only)
-                let is_format_error = err_msg.contains("Requested format") ||
-                    err_msg.contains("format not available") ||
-                    err_msg.contains("no video formats") ||
-                    err_msg.contains("audio only");
+                let is_format_error = err_msg.contains("Requested format")
+                    || err_msg.contains("format not available")
+                    || err_msg.contains("no video formats")
+                    || err_msg.contains("audio only");
 
                 if media_type == MediaType::Video && is_format_error {
                     Logger::warn(&format!("Attempting audio fallback for {}", download_id));
                     self.execute_audio_fallback(
                         download_id,
                         url,
+                        validated_cookies,
                         ytdlp_path,
                         ffmpeg_path,
                         output_dir,
                         unique_prefix,
                         response_tx,
-                    ).await;
+                    )
+                    .await;
                 } else {
-                    let _ = response_tx.send(EngineResponse::err(
-                        &download_id,
-                        "DOWNLOAD_FAILED",
-                        if err_msg.is_empty() { "Download process failed without error details" } else { &err_msg },
-                    )).await;
+                    let _ = response_tx
+                        .send(EngineResponse::err(
+                            &download_id,
+                            "DOWNLOAD_FAILED",
+                            if err_msg.is_empty() {
+                                "Download process failed without error details"
+                            } else {
+                                &err_msg
+                            },
+                        ))
+                        .await;
                 }
             }
             Ok(Err(e)) => {
                 Logger::error(&format!("Error waiting for child process: {}", e));
-                let _ = response_tx.send(EngineResponse::err(&download_id, "PROCESS_ERROR", &e.to_string())).await;
+                let _ = response_tx
+                    .send(EngineResponse::err(
+                        &download_id,
+                        "PROCESS_ERROR",
+                        &e.to_string(),
+                    ))
+                    .await;
             }
             Err(_) => {
-                Logger::info(&format!("Download {} was successfully cancelled", download_id));
+                Logger::info(&format!(
+                    "Download {} was successfully cancelled",
+                    download_id
+                ));
                 Self::cleanup_incomplete_files(&output_dir, &unique_prefix);
-                let _ = response_tx.send(EngineResponse::ok(
-                    &download_id,
-                    ResponseType::DownloadCancelled,
-                    serde_json::json!({ "download_id": download_id }),
-                )).await;
+                let _ = response_tx
+                    .send(EngineResponse::ok(
+                        &download_id,
+                        ResponseType::DownloadCancelled,
+                        serde_json::json!({ "download_id": download_id }),
+                    ))
+                    .await;
             }
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn execute_audio_fallback(
         &self,
         download_id: String,
         url: String,
+        validated_cookies: Option<PathBuf>,
         ytdlp_path: PathBuf,
         ffmpeg_path: Option<PathBuf>,
         output_dir: PathBuf,
@@ -406,6 +571,11 @@ impl DownloadManager {
             "0".to_string(),
         ];
 
+        if let Some(ref cp) = validated_cookies {
+            args.push("--cookies".to_string());
+            args.push(cp.to_string_lossy().to_string());
+        }
+
         if let Some(ffmpeg) = ffmpeg_path {
             if let Some(dir) = ffmpeg.parent() {
                 args.push("--ffmpeg-location".to_string());
@@ -413,38 +583,103 @@ impl DownloadManager {
             }
         }
 
+        // Positional argument delimiter prevents option parsing confusion
+        args.push("--".to_string());
         args.push(url);
 
         let mut cmd = Command::new(&ytdlp_path);
         cmd.args(&args);
         cmd.stdin(std::process::Stdio::null());
+        cmd.stdout(std::process::Stdio::null());
+        cmd.stderr(std::process::Stdio::null());
 
-        match cmd.output().await {
-            Ok(output) if output.status.success() => {
-                if let Some(file_info) = Self::find_output_file(&output_dir, &unique_prefix) {
-                    let _ = response_tx.send(EngineResponse::ok(
+        let mut child = match cmd.spawn() {
+            Ok(c) => c,
+            Err(e) => {
+                let _ = response_tx
+                    .send(EngineResponse::err(
                         &download_id,
-                        ResponseType::DownloadCompleted,
-                        serde_json::to_value(CompletedPayload {
-                            download_id: download_id.clone(),
-                            file_path: file_info.path.to_string_lossy().to_string(),
-                            file_name: file_info.name,
-                            file_size_bytes: file_info.size,
-                            extension: file_info.extension,
-                            fallback_to_audio: true,
-                        }).unwrap_or_default(),
-                    )).await;
+                        "SPAWN_FAILED",
+                        &e.to_string(),
+                    ))
+                    .await;
+                return;
+            }
+        };
+
+        let child_pid = child.id().unwrap_or(0);
+        let (cancel_tx, mut cancel_rx) = tokio::sync::oneshot::channel::<()>();
+
+        {
+            let mut map = self.active_downloads.lock().await;
+            map.insert(
+                download_id.clone(),
+                ActiveDownload {
+                    child_id: child_pid,
+                    cancel_tx: Some(cancel_tx),
+                },
+            );
+        }
+
+        let wait_result = tokio::select! {
+            res = child.wait() => Ok(res),
+            _ = &mut cancel_rx => {
+                let _ = child.kill().await;
+                Err("cancelled")
+            }
+        };
+
+        {
+            let mut map = self.active_downloads.lock().await;
+            map.remove(&download_id);
+        }
+
+        match wait_result {
+            Ok(Ok(status)) if status.success() => {
+                if let Some(file_info) = Self::find_output_file(&output_dir, &unique_prefix) {
+                    let _ = response_tx
+                        .send(EngineResponse::ok(
+                            &download_id,
+                            ResponseType::DownloadCompleted,
+                            serde_json::to_value(CompletedPayload {
+                                download_id: download_id.clone(),
+                                file_path: file_info.path.to_string_lossy().to_string(),
+                                file_name: file_info.name,
+                                file_size_bytes: file_info.size,
+                                extension: file_info.extension,
+                                fallback_to_audio: true,
+                            })
+                            .unwrap_or_default(),
+                        ))
+                        .await;
                     return;
                 }
             }
-            _ => {}
+            Ok(_) => {}
+            Err(_) => {
+                Logger::info(&format!(
+                    "Fallback audio download {} was cancelled",
+                    download_id
+                ));
+                Self::cleanup_incomplete_files(&output_dir, &unique_prefix);
+                let _ = response_tx
+                    .send(EngineResponse::ok(
+                        &download_id,
+                        ResponseType::DownloadCancelled,
+                        serde_json::json!({ "download_id": download_id }),
+                    ))
+                    .await;
+                return;
+            }
         }
 
-        let _ = response_tx.send(EngineResponse::err(
-            &download_id,
-            "DOWNLOAD_FAILED",
-            "Video stream was unavailable and fallback to audio also failed.",
-        )).await;
+        let _ = response_tx
+            .send(EngineResponse::err(
+                &download_id,
+                "DOWNLOAD_FAILED",
+                "Video stream was unavailable and fallback to audio also failed.",
+            ))
+            .await;
     }
 
     fn parse_progress_line(download_id: &str, line: &str) -> Option<ProgressUpdate> {
@@ -502,7 +737,11 @@ impl DownloadManager {
             if path.is_file() {
                 if let Some(file_name) = path.file_name().and_then(|s| s.to_str()) {
                     if file_name.starts_with(prefix) {
-                        let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("").to_lowercase();
+                        let ext = path
+                            .extension()
+                            .and_then(|s| s.to_str())
+                            .unwrap_or("")
+                            .to_lowercase();
                         if ext != "part" && ext != "ytdl" && ext != "temp" && ext != "aria2" {
                             if let Ok(meta) = entry.metadata() {
                                 if meta.len() > 0 {

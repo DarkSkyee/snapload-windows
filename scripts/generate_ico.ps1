@@ -1,7 +1,8 @@
 Add-Type -AssemblyName System.Drawing
 
-$src = ".\installer\src-tauri\icons\128x128.png"
-$dst = ".\installer\src-tauri\icons\icon.ico"
+$rootDir = Split-Path -Parent $PSScriptRoot
+$src = Join-Path $rootDir "installer\src-tauri\icons\128x128.png"
+$dst = Join-Path $rootDir "installer\src-tauri\icons\icon.ico"
 
 $bmp = [System.Drawing.Bitmap]::FromFile($src)
 $hIcon = $bmp.GetHicon()

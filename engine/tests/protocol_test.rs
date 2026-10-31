@@ -1,8 +1,7 @@
 use snapload_engine::downloader::DownloadManager;
 use snapload_engine::protocol::{
-    EngineRequest, EngineResponse, MediaType, NativeMessageIo,
-    RequestAction, ResponseType, VideoFormat, VideoQuality,
-    MAX_MESSAGE_SIZE,
+    EngineRequest, EngineResponse, MediaType, NativeMessageIo, RequestAction, ResponseType,
+    VideoFormat, VideoQuality, MAX_MESSAGE_SIZE,
 };
 use std::io::Cursor;
 
@@ -140,7 +139,11 @@ fn test_url_validation_rejections() {
 
 #[test]
 fn test_error_response_serialization() {
-    let err_resp = EngineResponse::err("err-101", "INVALID_URL", "Only HTTP and HTTPS URLs are allowed");
+    let err_resp = EngineResponse::err(
+        "err-101",
+        "INVALID_URL",
+        "Only HTTP and HTTPS URLs are allowed",
+    );
     let serialized = serde_json::to_string(&err_resp).expect("serialization failed");
     assert!(serialized.contains("err-101"));
     assert!(serialized.contains(r#""type":"error""#));
@@ -179,4 +182,149 @@ fn test_timestamp_utc_format() {
     assert!(ts.ends_with('Z'));
     assert!(ts.contains('T'));
     assert_eq!(ts.len(), 24); // e.g. "2026-10-31T23:35:18.123Z"
+}
+
+#[test]
+fn test_download_manager_default() {
+    let dm = DownloadManager::default();
+    assert!(DownloadManager::validate_url("https://youtube.com/watch?v=123").is_ok());
+    drop(dm);
+}
+
+#[tokio::test]
+async fn test_start_download_input_validation() {
+    use snapload_engine::config::EngineConfig;
+    use snapload_engine::protocol::StartDownloadPayload;
+    use tokio::sync::mpsc;
+
+    let dm = DownloadManager::new();
+    let (tx, mut rx) = mpsc::channel(10);
+    let cfg = EngineConfig::default();
+
+    // 1. Malicious download_id containing path traversal
+    dm.start_download(
+        "../../evil_id".to_string(),
+        StartDownloadPayload {
+            url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ".to_string(),
+            media_type: None,
+            video_format: None,
+            video_quality: None,
+            audio_format: None,
+            audio_quality: None,
+            custom_output_dir: None,
+            cookies_file: None,
+        },
+        cfg.clone(),
+        tx.clone(),
+    )
+    .await;
+
+    let res = rx.recv().await.expect("Expected response");
+    assert!(!res.success);
+    assert_eq!(
+        res.error.as_ref().map(|e| e.code.as_str()),
+        Some("INVALID_ID")
+    );
+
+    // 2. Malicious custom_output_dir containing path traversal
+    dm.start_download(
+        "valid_id_123".to_string(),
+        StartDownloadPayload {
+            url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ".to_string(),
+            media_type: None,
+            video_format: None,
+            video_quality: None,
+            audio_format: None,
+            audio_quality: None,
+            custom_output_dir: Some("../../Windows/System32".to_string()),
+            cookies_file: None,
+        },
+        cfg.clone(),
+        tx.clone(),
+    )
+    .await;
+
+    let res2 = rx.recv().await.expect("Expected response");
+    assert!(!res2.success);
+    assert_eq!(
+        res2.error.as_ref().map(|e| e.code.as_str()),
+        Some("INVALID_PATH")
+    );
+
+    // 3. UNC network path rejected to prevent Windows SMB NTLM hash leaking
+    dm.start_download(
+        "valid_id_unc".to_string(),
+        StartDownloadPayload {
+            url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ".to_string(),
+            media_type: None,
+            video_format: None,
+            video_quality: None,
+            audio_format: None,
+            audio_quality: None,
+            custom_output_dir: Some(r"\\192.168.1.100\share".to_string()),
+            cookies_file: None,
+        },
+        cfg,
+        tx,
+    )
+    .await;
+
+    let res3 = rx.recv().await.expect("Expected response");
+    assert!(!res3.success);
+    assert_eq!(
+        res3.error.as_ref().map(|e| e.code.as_str()),
+        Some("INVALID_PATH")
+    );
+}
+
+#[test]
+fn test_output_dir_validation_logic() {
+    // UNC paths must be rejected
+    assert!(DownloadManager::validate_output_dir(r"\\attacker.com\share").is_err());
+    assert!(DownloadManager::validate_output_dir("//attacker.com/share").is_err());
+    // Path traversal must be rejected
+    assert!(DownloadManager::validate_output_dir(r"C:\Users\..\Windows\System32").is_err());
+    // Relative paths must be rejected
+    assert!(DownloadManager::validate_output_dir("relative_dir").is_err());
+    assert!(DownloadManager::validate_output_dir(r"sub\dir").is_err());
+    // Control characters must be rejected
+    assert!(DownloadManager::validate_output_dir("C:\\Downloads\n").is_err());
+    assert!(DownloadManager::validate_output_dir("C:\\Downloads\0").is_err());
+    // Valid Windows absolute drive paths accepted
+    assert!(DownloadManager::validate_output_dir(r"C:\Users\Public\Downloads").is_ok());
+    assert!(DownloadManager::validate_output_dir("D:/Media/Downloads").is_ok());
+}
+
+#[test]
+fn test_cookies_file_validation_logic() {
+    // Flag injection prefix rejected
+    assert!(DownloadManager::validate_cookies_file("--config").is_err());
+    assert!(DownloadManager::validate_cookies_file("-c").is_err());
+    // UNC network paths rejected
+    assert!(DownloadManager::validate_cookies_file(r"\\evil.com\share\cookies.txt").is_err());
+    assert!(DownloadManager::validate_cookies_file("//evil.com/share/cookies.txt").is_err());
+    // Traversal rejected
+    assert!(DownloadManager::validate_cookies_file(r"C:\..\cookies.txt").is_err());
+    // Relative path rejected
+    assert!(DownloadManager::validate_cookies_file("cookies.txt").is_err());
+    // Control characters rejected
+    assert!(DownloadManager::validate_cookies_file("C:\\cookies.txt\r\n").is_err());
+}
+
+#[test]
+fn test_url_validation_control_characters() {
+    // Newline or null injection in URL rejected
+    assert!(DownloadManager::validate_url("https://youtube.com/watch?v=123\n--exec=calc").is_err());
+    assert!(DownloadManager::validate_url("https://youtube.com/watch?v=123\r\n").is_err());
+    assert!(DownloadManager::validate_url("https://youtube.com/watch?v=123\0").is_err());
+}
+
+#[tokio::test]
+async fn test_write_message_oversized_rejection() {
+    let mut buffer = Vec::new();
+    // Exceed 1 MB
+    let huge_message = "x".repeat(MAX_MESSAGE_SIZE as usize + 1);
+    let result = NativeMessageIo::write_message(&mut buffer, &huge_message).await;
+    assert!(result.is_err());
+    assert_eq!(result.unwrap_err().kind(), std::io::ErrorKind::InvalidData);
 }

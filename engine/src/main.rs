@@ -67,17 +67,21 @@ async fn main() {
                     }
                     Err(e) => {
                         Logger::warn(&format!("Malformed JSON received: {}", e));
-                        let _ = tx_outbound.send(EngineResponse::err(
-                            "null",
-                            "MALFORMED_JSON",
-                            &format!("Failed to parse JSON message: {}", e),
-                        )).await;
+                        let _ = tx_outbound
+                            .send(EngineResponse::err(
+                                "null",
+                                "MALFORMED_JSON",
+                                &format!("Failed to parse JSON message: {}", e),
+                            ))
+                            .await;
                     }
                 }
             }
             Ok(None) => {
                 // EOF on stdin: browser extension or host has disconnected
-                Logger::info("Browser closed Native Messaging connection (EOF on stdin). Exiting cleanly.");
+                Logger::info(
+                    "Browser closed Native Messaging connection (EOF on stdin). Exiting cleanly.",
+                );
                 break;
             }
             Err(e) => {
@@ -102,52 +106,62 @@ async fn handle_request(
     let req_id = req.id;
     match req.action {
         RequestAction::Ping => {
-            let _ = tx.send(EngineResponse::ok(
-                &req_id,
-                ResponseType::Pong,
-                serde_json::json!({ "timestamp": Logger::timestamp_utc() }),
-            )).await;
+            let _ = tx
+                .send(EngineResponse::ok(
+                    &req_id,
+                    ResponseType::Pong,
+                    serde_json::json!({ "timestamp": Logger::timestamp_utc() }),
+                ))
+                .await;
         }
         RequestAction::GetVersion => {
-            let _ = tx.send(EngineResponse::ok(
-                &req_id,
-                ResponseType::VersionInfo,
-                serde_json::json!({
-                    "name": ENGINE_NAME,
-                    "version": ENGINE_VERSION,
-                    "author": "DarkSkyee",
-                    "platform": "windows-x86_64",
-                }),
-            )).await;
+            let _ = tx
+                .send(EngineResponse::ok(
+                    &req_id,
+                    ResponseType::VersionInfo,
+                    serde_json::json!({
+                        "name": ENGINE_NAME,
+                        "version": ENGINE_VERSION,
+                        "author": "DarkSkyee",
+                        "platform": "windows-x86_64",
+                    }),
+                ))
+                .await;
         }
         RequestAction::CheckDependencies => {
             let status = DependencyManager::check_status(&config).await;
-            let _ = tx.send(EngineResponse::ok(
-                &req_id,
-                ResponseType::DependencyStatus,
-                serde_json::to_value(status).unwrap_or_default(),
-            )).await;
+            let _ = tx
+                .send(EngineResponse::ok(
+                    &req_id,
+                    ResponseType::DependencyStatus,
+                    serde_json::to_value(status).unwrap_or_default(),
+                ))
+                .await;
         }
         RequestAction::GetConfig => {
-            let _ = tx.send(EngineResponse::ok(
-                &req_id,
-                ResponseType::Config,
-                serde_json::to_value(&config).unwrap_or_default(),
-            )).await;
+            let _ = tx
+                .send(EngineResponse::ok(
+                    &req_id,
+                    ResponseType::Config,
+                    serde_json::to_value(&config).unwrap_or_default(),
+                ))
+                .await;
         }
         RequestAction::StartDownload(payload) => {
             downloader.start_download(req_id, payload, config, tx).await;
         }
         RequestAction::CancelDownload(payload) => {
             let cancelled = downloader.cancel_download(&payload.download_id).await;
-            let _ = tx.send(EngineResponse::ok(
-                &req_id,
-                ResponseType::DownloadCancelled,
-                serde_json::json!({
-                    "download_id": payload.download_id,
-                    "success": cancelled,
-                }),
-            )).await;
+            let _ = tx
+                .send(EngineResponse::ok(
+                    &req_id,
+                    ResponseType::DownloadCancelled,
+                    serde_json::json!({
+                        "download_id": payload.download_id,
+                        "success": cancelled,
+                    }),
+                ))
+                .await;
         }
     }
 }

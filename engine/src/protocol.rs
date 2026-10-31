@@ -205,7 +205,9 @@ pub struct NativeMessageIo;
 impl NativeMessageIo {
     /// Read a Native Messaging packet: 4-byte little-endian length followed by UTF-8 JSON.
     /// Returns Ok(None) upon EOF.
-    pub async fn read_message<R: AsyncReadExt + Unpin>(reader: &mut R) -> io::Result<Option<String>> {
+    pub async fn read_message<R: AsyncReadExt + Unpin>(
+        reader: &mut R,
+    ) -> io::Result<Option<String>> {
         let mut length_buf = [0u8; 4];
         match reader.read_exact(&mut length_buf).await {
             Ok(_) => {}
@@ -220,7 +222,10 @@ impl NativeMessageIo {
         if message_len > MAX_MESSAGE_SIZE {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
-                format!("Message length {} exceeds max allowed limit of {}", message_len, MAX_MESSAGE_SIZE),
+                format!(
+                    "Message length {} exceeds max allowed limit of {}",
+                    message_len, MAX_MESSAGE_SIZE
+                ),
             ));
         }
 
@@ -228,16 +233,31 @@ impl NativeMessageIo {
         reader.read_exact(&mut body).await?;
 
         let text = String::from_utf8(body).map_err(|e| {
-            io::Error::new(io::ErrorKind::InvalidData, format!("Invalid UTF-8 payload: {}", e))
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("Invalid UTF-8 payload: {}", e),
+            )
         })?;
 
         Ok(Some(text))
     }
 
     /// Write a Native Messaging packet: 4-byte little-endian length followed by UTF-8 bytes.
-    pub async fn write_message<W: AsyncWriteExt + Unpin>(writer: &mut W, json_str: &str) -> io::Result<()> {
+    pub async fn write_message<W: AsyncWriteExt + Unpin>(
+        writer: &mut W,
+        json_str: &str,
+    ) -> io::Result<()> {
         let bytes = json_str.as_bytes();
         let len = bytes.len() as u32;
+        if len > MAX_MESSAGE_SIZE {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!(
+                    "Outgoing message length {} exceeds max allowed limit of {}",
+                    len, MAX_MESSAGE_SIZE
+                ),
+            ));
+        }
         let len_buf = len.to_ne_bytes();
 
         writer.write_all(&len_buf).await?;

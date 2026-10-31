@@ -29,7 +29,8 @@ impl RegistryManager {
             "path": engine_path_escaped,
             "type": "stdio",
             "allowed_origins": [
-                "chrome-extension://*/"
+                "chrome-extension://ikkidkbojpedpeaomipgioiigmjlpflg/",
+                "extension://ikkidkbojpedpeaomipgioiigmjlpflg/"
             ]
         });
 
@@ -58,15 +59,25 @@ impl RegistryManager {
     pub fn register_browser(browser_id: &str, manifest_path: &Path) -> Result<(), String> {
         let subkey = match browser_id {
             "chrome" => format!(r"Software\Google\Chrome\NativeMessagingHosts\{}", HOST_NAME),
-            "edge" => format!(r"Software\Microsoft\Edge\NativeMessagingHosts\{}", HOST_NAME),
-            "brave" => format!(r"Software\BraveSoftware\Brave-Browser\NativeMessagingHosts\{}", HOST_NAME),
-            "opera" => format!(r"Software\Opera Software\Opera Stable\NativeMessagingHosts\{}", HOST_NAME),
+            "edge" => format!(
+                r"Software\Microsoft\Edge\NativeMessagingHosts\{}",
+                HOST_NAME
+            ),
+            "brave" => format!(
+                r"Software\BraveSoftware\Brave-Browser\NativeMessagingHosts\{}",
+                HOST_NAME
+            ),
+            "opera" => format!(
+                r"Software\Opera Software\Opera Stable\NativeMessagingHosts\{}",
+                HOST_NAME
+            ),
             "firefox" => format!(r"Software\Mozilla\NativeMessagingHosts\{}", HOST_NAME),
             _ => return Err(format!("Unsupported browser id: {}", browser_id)),
         };
 
         let hkcu = RegKey::predef(HKEY_CURRENT_USER);
-        let (key, _) = hkcu.create_subkey(&subkey)
+        let (key, _) = hkcu
+            .create_subkey(&subkey)
             .map_err(|e| format!("Failed to create registry subkey {}: {}", subkey, e))?;
 
         let manifest_str = manifest_path.to_string_lossy().to_string();
@@ -80,9 +91,18 @@ impl RegistryManager {
         let mut removed = Vec::new();
         let subkeys = [
             format!(r"Software\Google\Chrome\NativeMessagingHosts\{}", HOST_NAME),
-            format!(r"Software\Microsoft\Edge\NativeMessagingHosts\{}", HOST_NAME),
-            format!(r"Software\BraveSoftware\Brave-Browser\NativeMessagingHosts\{}", HOST_NAME),
-            format!(r"Software\Opera Software\Opera Stable\NativeMessagingHosts\{}", HOST_NAME),
+            format!(
+                r"Software\Microsoft\Edge\NativeMessagingHosts\{}",
+                HOST_NAME
+            ),
+            format!(
+                r"Software\BraveSoftware\Brave-Browser\NativeMessagingHosts\{}",
+                HOST_NAME
+            ),
+            format!(
+                r"Software\Opera Software\Opera Stable\NativeMessagingHosts\{}",
+                HOST_NAME
+            ),
             format!(r"Software\Mozilla\NativeMessagingHosts\{}", HOST_NAME),
         ];
 

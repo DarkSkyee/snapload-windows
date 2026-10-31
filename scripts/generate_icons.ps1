@@ -1,6 +1,7 @@
 Add-Type -AssemblyName System.Drawing
 
-$assetsDir = ".\extension\assets"
+$rootDir = Split-Path -Parent $PSScriptRoot
+$assetsDir = Join-Path $rootDir "extension\assets"
 if (!(Test-Path $assetsDir)) {
     New-Item -ItemType Directory -Path $assetsDir -Force | Out-Null
 }

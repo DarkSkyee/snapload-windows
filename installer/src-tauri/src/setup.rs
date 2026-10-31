@@ -56,8 +56,17 @@ impl SetupManager {
 
         // Search relative paths, sibling directories, current exe directory, and workspace targets
         let mut search_candidates = vec![
-            std::env::current_exe().unwrap_or_default().parent().unwrap_or(Path::new("")).join("snapload-engine.exe"),
-            std::env::current_exe().unwrap_or_default().parent().unwrap_or(Path::new("")).join("bin").join("snapload-engine.exe"),
+            std::env::current_exe()
+                .unwrap_or_default()
+                .parent()
+                .unwrap_or(Path::new(""))
+                .join("snapload-engine.exe"),
+            std::env::current_exe()
+                .unwrap_or_default()
+                .parent()
+                .unwrap_or(Path::new(""))
+                .join("bin")
+                .join("snapload-engine.exe"),
             PathBuf::from("snapload-engine.exe"),
             PathBuf::from("bin/snapload-engine.exe"),
             PathBuf::from("../engine/target/release/snapload-engine.exe"),
@@ -88,7 +97,10 @@ impl SetupManager {
             if !engine_dest.exists() {
                 return Err("SnapLoad engine executable not found in build directory. Please compile engine first.".to_string());
             }
-            logs.push(format!("Existing SnapLoad Engine verified at: {:?}", engine_dest));
+            logs.push(format!(
+                "Existing SnapLoad Engine verified at: {:?}",
+                engine_dest
+            ));
         }
 
         // Generate and write Native Messaging host manifests
@@ -126,12 +138,25 @@ impl SetupManager {
             } else {
                 logs.push("Downloading latest official yt-dlp release...".to_string());
                 let download_res = tokio::process::Command::new("curl.exe")
-                    .args(&["-s", "-L", "-f", "-o", ytdlp_dest.to_str().unwrap_or_default(), "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe"])
+                    .args([
+                        "-s",
+                        "-L",
+                        "-f",
+                        "-o",
+                        ytdlp_dest.to_str().unwrap_or_default(),
+                        "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe",
+                    ])
                     .status()
                     .await;
 
                 if let Ok(status) = download_res {
-                    if status.success() && ytdlp_dest.exists() && ytdlp_dest.metadata().map(|m| m.len() > 1_000_000).unwrap_or(false) {
+                    if status.success()
+                        && ytdlp_dest.exists()
+                        && ytdlp_dest
+                            .metadata()
+                            .map(|m| m.len() > 1_000_000)
+                            .unwrap_or(false)
+                    {
                         logs.push("yt-dlp downloaded and installed successfully!".to_string());
                     } else {
                         logs.push("Notice: Automated yt-dlp download failed. Official source: https://github.com/yt-dlp/yt-dlp/releases".to_string());
@@ -160,9 +185,14 @@ impl SetupManager {
 
         // Initialize default download directory in User Downloads\SnapLoad
         if let Some(user_profile) = std::env::var_os("USERPROFILE") {
-            let dl_dir = PathBuf::from(user_profile).join("Downloads").join("SnapLoad");
+            let dl_dir = PathBuf::from(user_profile)
+                .join("Downloads")
+                .join("SnapLoad");
             let _ = create_dir_all(&dl_dir);
-            logs.push(format!("Default media downloads folder ready: {:?}", dl_dir));
+            logs.push(format!(
+                "Default media downloads folder ready: {:?}",
+                dl_dir
+            ));
         }
 
         logs.push("SnapLoad Setup completed successfully.".to_string());
@@ -179,16 +209,25 @@ impl SetupManager {
         let engine_path = bin_dir.join("snapload-engine.exe");
 
         if engine_path.exists() {
-            checks.push(format!("Engine binary verified ({} bytes)", engine_path.metadata().map(|m| m.len()).unwrap_or(0)));
+            checks.push(format!(
+                "Engine binary verified ({} bytes)",
+                engine_path.metadata().map(|m| m.len()).unwrap_or(0)
+            ));
         } else {
             checks.push("Engine binary missing from %LOCALAPPDATA%\\SnapLoad\\bin".to_string());
         }
 
         let manifest_dir = RegistryManager::get_manifest_dir();
-        if manifest_dir.join("com.darkskyee.snapload.chromium.json").exists() {
+        if manifest_dir
+            .join("com.darkskyee.snapload.chromium.json")
+            .exists()
+        {
             checks.push("Chromium Native Messaging manifest verified".to_string());
         }
-        if manifest_dir.join("com.darkskyee.snapload.firefox.json").exists() {
+        if manifest_dir
+            .join("com.darkskyee.snapload.firefox.json")
+            .exists()
+        {
             checks.push("Firefox Native Messaging manifest verified".to_string());
         }
 
@@ -200,7 +239,10 @@ impl SetupManager {
 
         // 1. Unregister all registry keys
         let removed_keys = RegistryManager::unregister_all();
-        logs.push(format!("Removed {} registry registrations", removed_keys.len()));
+        logs.push(format!(
+            "Removed {} registry registrations",
+            removed_keys.len()
+        ));
 
         // 2. Remove application directory (excluding user downloads)
         let app_dir = Self::get_app_dir();

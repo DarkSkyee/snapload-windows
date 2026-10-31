@@ -43,7 +43,7 @@
   ],
   "browser_specific_settings": {
     "gecko": {
-      "id": "snapload@darkskyee.com",
+      "id": "snapload@darkskyee.github.io",
       "strict_min_version": "109.0"
     }
   }

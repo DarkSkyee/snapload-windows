@@ -124,7 +124,10 @@ impl DependencyManager {
                     true
                 }
                 Err(e) => {
-                    Logger::warn(&format!("Found yt-dlp at {:?} but failed to probe: {}", path, e));
+                    Logger::warn(&format!(
+                        "Found yt-dlp at {:?} but failed to probe: {}",
+                        path, e
+                    ));
                     false
                 }
             }
@@ -141,7 +144,10 @@ impl DependencyManager {
                     true
                 }
                 Err(e) => {
-                    Logger::warn(&format!("Found ffmpeg at {:?} but failed to probe: {}", path, e));
+                    Logger::warn(&format!(
+                        "Found ffmpeg at {:?} but failed to probe: {}",
+                        path, e
+                    ));
                     false
                 }
             }
@@ -177,16 +183,19 @@ impl DependencyManager {
         cmd.stderr(std::process::Stdio::piped());
 
         let child = cmd.spawn()?;
-        let output = timeout(Duration::from_secs(4), child.wait_with_output()).await
-            .map_err(|_| std::io::Error::new(std::io::ErrorKind::TimedOut, "Command timed out"))??;
+        let output = timeout(Duration::from_secs(4), child.wait_with_output())
+            .await
+            .map_err(|_| {
+                std::io::Error::new(std::io::ErrorKind::TimedOut, "Command timed out")
+            })??;
 
         if output.status.success() {
             Ok(String::from_utf8_lossy(&output.stdout).to_string())
         } else {
-            Err(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!("Process exited with status {}", output.status),
-            ))
+            Err(std::io::Error::other(format!(
+                "Process exited with status {}",
+                output.status
+            )))
         }
     }
 }

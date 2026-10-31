@@ -31,7 +31,8 @@ Placed at `%LOCALAPPDATA%\SnapLoad\manifests\com.darkskyee.snapload.chromium.jso
   "path": "C:\\Users\\<Username>\\AppData\\Local\\SnapLoad\\bin\\snapload-engine.exe",
   "type": "stdio",
   "allowed_origins": [
-    "chrome-extension://*/"
+    "chrome-extension://ikkidkbojpedpeaomipgioiigmjlpflg/",
+    "extension://ikkidkbojpedpeaomipgioiigmjlpflg/"
   ]
 }
 ```
