@@ -1,0 +1,16 @@
+{
+  "name": "snapload-extension",
+  "version": "1.0.0",
+  "description": "SnapLoad Browser Extension for Chromium & Firefox",
+  "scripts": {
+    "build": "node build.mjs",
+    "typecheck": "tsc --noEmit"
+  },
+  "author": "DarkSkyee",
+  "license": "MIT-NC",
+  "devDependencies": {
+    "@types/chrome": "^0.0.280",
+    "esbuild": "^0.24.0",
+    "typescript": "^5.6.3"
+  }
+}

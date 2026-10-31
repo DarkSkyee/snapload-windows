@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 108 108" width="128" height="128">
+  <defs>
+    <linearGradient id="bgGrad" x1="12" y1="8" x2="96" y2="100" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#070913"/>
+      <stop offset="45%" stop-color="#0F172A"/>
+      <stop offset="100%" stop-color="#1E143B"/>
+    </linearGradient>
+    <linearGradient id="sGrad" x1="34" y1="28" x2="74" y2="80" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#00F2FE"/>
+      <stop offset="50%" stop-color="#6366F1"/>
+      <stop offset="100%" stop-color="#A855F7"/>
+    </linearGradient>
+  </defs>
+  <rect x="0" y="0" width="108" height="108" rx="24" fill="url(#bgGrad)"/>
+  <circle cx="54" cy="54" r="40" stroke="#00F2FE" stroke-opacity="0.25" stroke-width="1.2" fill="none"/>
+  <path d="M66,32 C58,28 44,29 38,36 C34,41 35,49 42,53 L58,60 C64,63 66,67 64,72 C61,77 53,79 46,77 C41,75 37,71 36,67"
+        stroke="url(#sGrad)" stroke-width="7" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  <path d="M54,42 L54,64 M45,55 L54,64 L63,55" stroke="#FFFFFF" stroke-width="4.2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+</svg>
