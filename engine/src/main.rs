@@ -105,7 +105,7 @@ async fn handle_request(
             let _ = tx.send(EngineResponse::ok(
                 &req_id,
                 ResponseType::Pong,
-                serde_json::json!({ "timestamp": chrono::Utc::now().to_rfc3339() }),
+                serde_json::json!({ "timestamp": Logger::timestamp_utc() }),
             )).await;
         }
         RequestAction::GetVersion => {
