@@ -20,6 +20,8 @@ pnpm-debug.log*
 
 # Installer & Tauri build outputs
 /installer/src-tauri/target/
+/installer/src-tauri/gen/
+/installer/src-tauri/icons/
 /installer/dist/
 
 # OS / Editor artifacts

@@ -56,6 +56,24 @@ foreach ($size in $sizes) {
     $outPath = Join-Path $assetsDir "icon-$size.png"
     $bmp.Save($outPath, [System.Drawing.Imaging.ImageFormat]::Png)
 
+    if ($size -eq 32) {
+        $tauriDir = Join-Path (Split-Path -Parent $PSScriptRoot) "installer\src-tauri\icons"
+        if (!(Test-Path $tauriDir)) { New-Item -ItemType Directory -Path $tauriDir -Force | Out-Null }
+        $bmp.Save((Join-Path $tauriDir "32x32.png"), [System.Drawing.Imaging.ImageFormat]::Png)
+    }
+    if ($size -eq 128) {
+        $tauriDir = Join-Path (Split-Path -Parent $PSScriptRoot) "installer\src-tauri\icons"
+        if (!(Test-Path $tauriDir)) { New-Item -ItemType Directory -Path $tauriDir -Force | Out-Null }
+        $bmp.Save((Join-Path $tauriDir "128x128.png"), [System.Drawing.Imaging.ImageFormat]::Png)
+
+        $icon = [System.Drawing.Icon]::FromHandle($bmp.GetHicon())
+        $fs = New-Object System.IO.FileStream (Join-Path $tauriDir "icon.ico"), ([System.IO.FileMode]::Create)
+        $icon.Save($fs)
+        $fs.Close()
+        $icon.Dispose()
+        Write-Host "Generated Tauri icon: $(Join-Path $tauriDir 'icon.ico')"
+    }
+
     $g.Dispose()
     $bmp.Dispose()
     Write-Host "Generated icon: $outPath ($size x $size)"
