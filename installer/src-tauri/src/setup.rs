@@ -18,6 +18,12 @@ pub struct InstallResult {
 
 pub struct SetupManager;
 
+const EMBEDDED_ENGINE: &[u8] = include_bytes!("../../../engine/target/release/snapload-engine.exe");
+const EMBEDDED_CHROME_EXT: &[u8] =
+    include_bytes!("../../../extension/dist/snapload-extension-chromium.zip");
+const EMBEDDED_FIREFOX_EXT: &[u8] =
+    include_bytes!("../../../extension/dist/snapload-extension-firefox.zip");
+
 impl SetupManager {
     pub fn get_app_dir() -> PathBuf {
         let local_app_data = std::env::var_os("LOCALAPPDATA")
@@ -92,14 +98,39 @@ impl SetupManager {
             std::fs::copy(&src, &engine_dest)
                 .map_err(|e| format!("Failed to copy engine binary from {:?}: {}", src, e))?;
             logs.push(format!("Deployed SnapLoad Engine to: {:?}", engine_dest));
-        } else {
-            // If running standalone, verify if engine_dest is already present
-            if !engine_dest.exists() {
-                return Err("SnapLoad engine executable not found in build directory. Please compile engine first.".to_string());
-            }
+        } else if !EMBEDDED_ENGINE.is_empty() {
+            std::fs::write(&engine_dest, EMBEDDED_ENGINE)
+                .map_err(|e| format!("Failed to deploy embedded engine: {}", e))?;
+            logs.push(format!(
+                "Extracted embedded SnapLoad Engine to: {:?}",
+                engine_dest
+            ));
+        } else if engine_dest.exists() {
             logs.push(format!(
                 "Existing SnapLoad Engine verified at: {:?}",
                 engine_dest
+            ));
+        } else {
+            return Err("SnapLoad engine executable not found.".to_string());
+        }
+
+        // Deploy embedded browser extension archives
+        let ext_dir = Self::get_app_dir().join("extensions");
+        let _ = create_dir_all(&ext_dir);
+        let chrome_dest = ext_dir.join("snapload-extension-chromium.zip");
+        let firefox_dest = ext_dir.join("snapload-extension-firefox.zip");
+        if !EMBEDDED_CHROME_EXT.is_empty() {
+            let _ = std::fs::write(&chrome_dest, EMBEDDED_CHROME_EXT);
+            logs.push(format!(
+                "Extracted Chromium extension to: {:?}",
+                chrome_dest
+            ));
+        }
+        if !EMBEDDED_FIREFOX_EXT.is_empty() {
+            let _ = std::fs::write(&firefox_dest, EMBEDDED_FIREFOX_EXT);
+            logs.push(format!(
+                "Extracted Firefox extension to: {:?}",
+                firefox_dest
             ));
         }
 

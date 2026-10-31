@@ -48,20 +48,13 @@ jobs:
           cd src-tauri
           cargo build --release
 
-      - name: Generate Release Manifest
-        shell: pwsh
-        run: |
-          powershell -ExecutionPolicy Bypass -File scripts/release/generate_manifest.ps1
-
-      - name: Publish GitHub Release
+      - name: Publish GitHub Release (Setup Only)
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name || inputs.tag || 'v1.0.0' }}
+          name: "SnapLoad Windows 1.0"
           files: |
-            engine/target/release/snapload-engine.exe
             installer/src-tauri/target/release/snapload-setup.exe
-            extension/dist/snapload-extension-chromium.zip
-            extension/dist/snapload-extension-firefox.zip
-            release_manifest.json
           draft: false
           prerelease: false
+          generate_release_notes: true

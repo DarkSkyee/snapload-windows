@@ -23,6 +23,10 @@ pnpm-debug.log*
 /installer/src-tauri/gen/
 /installer/dist/
 
+# Release manifest
+release_manifest.json
+**/release_manifest.json
+
 # OS / Editor artifacts
 .DS_Store
 Thumbs.db
