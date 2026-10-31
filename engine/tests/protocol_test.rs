@@ -137,3 +137,46 @@ fn test_url_validation_rejections() {
     // Missing host
     assert!(DownloadManager::validate_url("https://").is_err());
 }
+
+#[test]
+fn test_error_response_serialization() {
+    let err_resp = EngineResponse::err("err-101", "INVALID_URL", "Only HTTP and HTTPS URLs are allowed");
+    let serialized = serde_json::to_string(&err_resp).expect("serialization failed");
+    assert!(serialized.contains("err-101"));
+    assert!(serialized.contains(r#""type":"error""#));
+    assert!(serialized.contains(r#""success":false"#));
+    assert!(serialized.contains("INVALID_URL"));
+    assert!(serialized.contains("Only HTTP and HTTPS URLs are allowed"));
+}
+
+#[test]
+fn test_audio_format_and_quality_mappings() {
+    use snapload_engine::protocol::{AudioFormat, AudioQuality};
+    assert_eq!(AudioFormat::Mp3.extension(), "mp3");
+    assert_eq!(AudioFormat::M4a.extension(), "m4a");
+    assert_eq!(AudioFormat::Flac.extension(), "flac");
+    assert_eq!(AudioQuality::Best.ytdl_quality(), "0");
+    assert_eq!(AudioQuality::High.ytdl_quality(), "2");
+    assert_eq!(AudioQuality::Low.ytdl_quality(), "6");
+}
+
+#[test]
+fn test_cancel_request_deserialization() {
+    let json = r#"{"id":"req-cancel-1","version":"1.0","action":"cancel_download","payload":{"download_id":"dl_abc123"}}"#;
+    let req: EngineRequest = serde_json::from_str(json).expect("deserialize cancel failed");
+    match req.action {
+        RequestAction::CancelDownload(payload) => {
+            assert_eq!(payload.download_id, "dl_abc123");
+        }
+        _ => panic!("Expected CancelDownload"),
+    }
+}
+
+#[test]
+fn test_timestamp_utc_format() {
+    use snapload_engine::logger::Logger;
+    let ts = Logger::timestamp_utc();
+    assert!(ts.ends_with('Z'));
+    assert!(ts.contains('T'));
+    assert_eq!(ts.len(), 24); // e.g. "2026-10-31T23:35:18.123Z"
+}
