@@ -10,7 +10,7 @@
                                             },
                       "engine":  {
                                      "url":  "https://github.com/DarkSkyee/snapload-windows/releases/download/v1.0.0/snapload-engine.exe",
-                                     "sha256":  "6d71e27a5a94a6f8e38563c30c18284ad224741c939baf9a82e9fa7eea954756",
+                                     "sha256":  "a208755bc9823029c453bde7d5c60c1388bb3dcabea2027b014e29aef144c23a",
                                      "file":  "snapload-engine.exe"
                                  },
                       "setup":  {
