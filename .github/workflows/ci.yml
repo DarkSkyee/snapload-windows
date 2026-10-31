@@ -1,0 +1,55 @@
+name: SnapLoad Windows CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  engine-tests:
+    name: Rust Engine Tests & Release Build
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Run Engine Tests
+        run: |
+          cd engine
+          cargo test --verbose
+      - name: Build Engine (Release)
+        run: |
+          cd engine
+          cargo build --release
+
+  extension-build:
+    name: Browser Extensions Build & Typecheck
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install & Typecheck
+        run: |
+          cd extension
+          npm ci || npm install
+          npm run typecheck
+      - name: Build Extensions for Chrome and Firefox
+        run: |
+          cd extension
+          npm run build
+
+  installer-build:
+    name: Installer Frontend & Verification
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Build Installer UI
+        run: |
+          cd installer
+          npm ci || npm install
+          npm run build

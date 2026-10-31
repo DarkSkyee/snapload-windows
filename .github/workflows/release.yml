@@ -1,0 +1,56 @@
+name: SnapLoad Windows Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-release:
+    name: Build & Publish Release Artifacts
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Build SnapLoad Desktop Engine
+        run: |
+          cd engine
+          cargo build --release
+
+      - name: Build & Package Browser Extensions
+        run: |
+          cd extension
+          npm ci || npm install
+          npm run build
+          Compress-Archive -Path dist/chrome/* -DestinationPath dist/snapload-extension-chromium.zip
+          Compress-Archive -Path dist/firefox/* -DestinationPath dist/snapload-extension-firefox.zip
+
+      - name: Build Installer
+        run: |
+          cd installer
+          npm ci || npm install
+          npm run build
+
+      - name: Generate Release Manifest
+        shell: pwsh
+        run: |
+          powershell -ExecutionPolicy Bypass -File scripts/release/generate_manifest.ps1
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            engine/target/release/snapload-engine.exe
+            extension/dist/snapload-extension-chromium.zip
+            extension/dist/snapload-extension-firefox.zip
+            release_manifest.json
+          draft: false
+          prerelease: false
+          generate_release_notes: true
