@@ -14,6 +14,7 @@ pnpm-debug.log*
 
 # Extension build artifacts
 /extension/dist/
+/extension/assets/icon-*.png
 **/dist/
 **/build/
 
