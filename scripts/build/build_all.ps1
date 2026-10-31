@@ -4,6 +4,10 @@ Write-Host "==========================================" -ForegroundColor Cyan
 
 $root = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 
+if (-not (Get-Command cargo -ErrorAction SilentlyContinue)) {
+    $env:PATH = "$HOME\.cargo\bin;$env:PATH"
+}
+
 # 1. Generate Icons
 Write-Host "`n[1/4] Generating application icons..." -ForegroundColor Yellow
 & "$root\scripts\generate_icons.ps1"
