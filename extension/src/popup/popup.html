@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SnapLoad</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="snapload-popup">
+    <!-- Header -->
+    <header class="header">
+      <div class="brand">
+        <svg class="logo" viewBox="0 0 108 108" width="28" height="28" fill="none">
+          <defs>
+            <linearGradient id="popLogoGrad" x1="0" y1="0" x2="108" y2="108" gradientUnits="userSpaceOnUse">
+              <stop offset="0%" stop-color="#00F2FE"/>
+              <stop offset="50%" stop-color="#6366F1"/>
+              <stop offset="100%" stop-color="#A855F7"/>
+            </linearGradient>
+          </defs>
+          <path d="M66,32 C58,28 44,29 38,36 C34,41 35,49 42,53 L58,60 C64,63 66,67 64,72 C61,77 53,79 46,77 C41,75 37,71 36,67"
+                stroke="url(#popLogoGrad)" stroke-width="8" stroke-linecap="round" fill="none"/>
+          <path d="M54,40 L54,66 M44,56 L54,66 L64,56" stroke="#FFFFFF" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <span class="brand-name">SnapLoad</span>
+      </div>
+      <div id="engine-status" class="status-badge disconnected">
+        <span class="status-dot"></span>
+        <span id="status-label">Engine Offline</span>
+      </div>
+    </header>
+
+    <!-- URL Section -->
+    <section class="url-card">
+      <label for="url-input" class="section-label">Target Media URL</label>
+      <div class="url-input-wrapper">
+        <input type="text" id="url-input" placeholder="Paste link or open video..." spellcheck="false" />
+        <button id="paste-btn" class="icon-btn" title="Paste from clipboard">
+          📋
+        </button>
+      </div>
+    </section>
+
+    <!-- Format & Quality Options -->
+    <section class="options-card">
+      <div class="type-toggle">
+        <button id="type-video" class="toggle-btn active">Video</button>
+        <button id="type-audio" class="toggle-btn">Audio</button>
+      </div>
+
+      <div class="selectors-row">
+        <div class="selector-group">
+          <label for="format-select">Format</label>
+          <select id="format-select">
+            <option value="mp4">MP4</option>
+            <option value="mkv">MKV</option>
+            <option value="webm">WebM</option>
+          </select>
+        </div>
+
+        <div class="selector-group">
+          <label for="quality-select">Quality</label>
+          <select id="quality-select">
+            <option value="best">Best (Original / 4K)</option>
+            <option value="p1080">1080p FHD</option>
+            <option value="p720">720p HD</option>
+            <option value="p480">480p SD</option>
+          </select>
+        </div>
+      </div>
+    </section>
+
+    <!-- Action Button -->
+    <button id="download-btn" class="primary-btn">
+      <span class="btn-icon">⬇</span>
+      <span id="btn-text">Download with SnapLoad</span>
+    </button>
+
+    <!-- Active Downloads Section -->
+    <section id="downloads-container" class="downloads-card hidden">
+      <div class="downloads-header">
+        <span>Active Downloads</span>
+      </div>
+      <div id="downloads-list"></div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="footer">
+      <a href="https://github.com/DarkSkyee/snapload-windows" target="_blank" rel="noreferrer" class="footer-link">
+        GitHub • Help & Docs
+      </a>
+      <span class="version-tag">v1.0.0</span>
+    </footer>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
