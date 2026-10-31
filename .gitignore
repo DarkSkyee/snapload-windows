@@ -1,0 +1,39 @@
+# Rust / Cargo
+/target/
+**/target/
+**/*.rs.bk
+Cargo.lock
+
+# Node / NPM
+node_modules/
+**/node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Extension build artifacts
+/extension/dist/
+**/dist/
+**/build/
+
+# Installer & Tauri build outputs
+/installer/src-tauri/target/
+/installer/dist/
+
+# OS / Editor artifacts
+.DS_Store
+Thumbs.db
+Desktop.ini
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Runtime logs & temporary cache
+*.log
+logs/
+temp/
+cache/
+downloads/
+test-downloads/
