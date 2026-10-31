@@ -20,7 +20,9 @@ pub struct SetupManager;
 
 impl SetupManager {
     pub fn get_app_dir() -> PathBuf {
-        let local_app_data = std::env::var_os("LOCALAPPDATA").expect("LOCALAPPDATA not found");
+        let local_app_data = std::env::var_os("LOCALAPPDATA")
+            .or_else(|| std::env::var_os("APPDATA"))
+            .unwrap_or_else(|| std::ffi::OsString::from("."));
         let mut path = PathBuf::from(local_app_data);
         path.push("SnapLoad");
         path
@@ -52,12 +54,23 @@ impl SetupManager {
         let engine_dest = bin_dir.join("snapload-engine.exe");
         let mut engine_source = None;
 
-        // Try sibling directories or current exe directory
-        let search_candidates = [
-            PathBuf::from(r".\engine\target\release\snapload-engine.exe"),
-            PathBuf::from(r".\engine\target\debug\snapload-engine.exe"),
+        // Search relative paths, sibling directories, current exe directory, and workspace targets
+        let mut search_candidates = vec![
             std::env::current_exe().unwrap_or_default().parent().unwrap_or(Path::new("")).join("snapload-engine.exe"),
+            std::env::current_exe().unwrap_or_default().parent().unwrap_or(Path::new("")).join("bin").join("snapload-engine.exe"),
+            PathBuf::from("snapload-engine.exe"),
+            PathBuf::from("bin/snapload-engine.exe"),
+            PathBuf::from("../engine/target/release/snapload-engine.exe"),
+            PathBuf::from("engine/target/release/snapload-engine.exe"),
+            PathBuf::from("../engine/target/debug/snapload-engine.exe"),
+            PathBuf::from("engine/target/debug/snapload-engine.exe"),
         ];
+
+        if let Ok(cwd) = std::env::current_dir() {
+            search_candidates.push(cwd.join("engine/target/release/snapload-engine.exe"));
+            search_candidates.push(cwd.join("../engine/target/release/snapload-engine.exe"));
+            search_candidates.push(cwd.join("engine/target/debug/snapload-engine.exe"));
+        }
 
         for c in &search_candidates {
             if c.exists() && c.is_file() {
@@ -102,20 +115,46 @@ impl SetupManager {
         // Handle yt-dlp installation if requested
         if options.install_ytdlp {
             let ytdlp_dest = bin_dir.join("yt-dlp.exe");
-            if !ytdlp_dest.exists() {
-                logs.push("yt-dlp is configured. Download url: https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe".to_string());
-            } else {
+            if ytdlp_dest.exists() {
                 logs.push(format!("yt-dlp core verified at: {:?}", ytdlp_dest));
+            } else if let Some(path_src) = which("yt-dlp.exe") {
+                if std::fs::copy(&path_src, &ytdlp_dest).is_ok() {
+                    logs.push(format!("Copied existing yt-dlp from PATH: {:?}", path_src));
+                } else {
+                    logs.push(format!("yt-dlp detected on system PATH at: {:?}", path_src));
+                }
+            } else {
+                logs.push("Downloading latest official yt-dlp release...".to_string());
+                let download_res = tokio::process::Command::new("curl.exe")
+                    .args(&["-s", "-L", "-f", "-o", ytdlp_dest.to_str().unwrap_or_default(), "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe"])
+                    .status()
+                    .await;
+
+                if let Ok(status) = download_res {
+                    if status.success() && ytdlp_dest.exists() && ytdlp_dest.metadata().map(|m| m.len() > 1_000_000).unwrap_or(false) {
+                        logs.push("yt-dlp downloaded and installed successfully!".to_string());
+                    } else {
+                        logs.push("Notice: Automated yt-dlp download failed. Official source: https://github.com/yt-dlp/yt-dlp/releases".to_string());
+                    }
+                } else {
+                    logs.push("Notice: curl is unavailable to download yt-dlp. Official source: https://github.com/yt-dlp/yt-dlp/releases".to_string());
+                }
             }
         }
 
         // Handle FFmpeg installation if requested
         if options.install_ffmpeg {
             let ffmpeg_dest = bin_dir.join("ffmpeg.exe");
-            if !ffmpeg_dest.exists() {
-                logs.push("FFmpeg converter configured for on-demand installation.".to_string());
-            } else {
+            if ffmpeg_dest.exists() {
                 logs.push(format!("FFmpeg core verified at: {:?}", ffmpeg_dest));
+            } else if let Some(path_src) = which("ffmpeg.exe") {
+                if std::fs::copy(&path_src, &ffmpeg_dest).is_ok() {
+                    logs.push(format!("Copied existing FFmpeg from PATH: {:?}", path_src));
+                } else {
+                    logs.push(format!("FFmpeg detected on system PATH at: {:?}", path_src));
+                }
+            } else {
+                logs.push("FFmpeg converter configured. Place ffmpeg.exe in SnapLoad\\bin or system PATH for audio remuxing.".to_string());
             }
         }
 
@@ -173,4 +212,16 @@ impl SetupManager {
         logs.push("SnapLoad components uninstalled. Downloaded media preserved.".to_string());
         Ok(logs)
     }
+}
+
+fn which(name: &str) -> Option<PathBuf> {
+    if let Some(paths) = std::env::var_os("PATH") {
+        for p in std::env::split_paths(&paths) {
+            let full = p.join(name);
+            if full.is_file() {
+                return Some(full);
+            }
+        }
+    }
+    None
 }
