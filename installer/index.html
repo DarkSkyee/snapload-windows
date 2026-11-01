@@ -3,31 +3,24 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>SnapLoad Setup & Manager</title>
+  <title>SnapLoad Setup & Desktop Manager</title>
   <link rel="stylesheet" href="/src/styles.css">
 </head>
 <body>
   <div class="window-container">
-    <!-- Sidebar / Brand Header -->
+    <!-- Clean Professional Header -->
     <header class="app-header">
       <div class="brand">
-        <svg class="brand-logo" viewBox="0 0 108 108" width="40" height="40" fill="none">
-          <defs>
-            <linearGradient id="setupLogoGrad" x1="0" y1="0" x2="108" y2="108" gradientUnits="userSpaceOnUse">
-              <stop offset="0%" stop-color="#00F2FE"/>
-              <stop offset="50%" stop-color="#6366F1"/>
-              <stop offset="100%" stop-color="#A855F7"/>
-            </linearGradient>
-          </defs>
-          <rect x="0" y="0" width="108" height="108" rx="24" fill="#0F172A"/>
-          <circle cx="54" cy="54" r="42" stroke="#00F2FE" stroke-opacity="0.25" stroke-width="1.5"/>
-          <path d="M66,32 C58,28 44,29 38,36 C34,41 35,49 42,53 L58,60 C64,63 66,67 64,72 C61,77 53,79 46,77 C41,75 37,71 36,67"
-                stroke="url(#setupLogoGrad)" stroke-width="8" stroke-linecap="round"/>
-          <path d="M54,40 L54,66 M44,56 L54,66 L64,56" stroke="#FFFFFF" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
-        </svg>
+        <div class="brand-icon-wrapper">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="#2563EB" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+            <polyline points="7 10 12 15 17 10"></polyline>
+            <line x1="12" y1="15" x2="12" y2="3"></line>
+          </svg>
+        </div>
         <div class="brand-text">
-          <h1>SnapLoad Setup</h1>
-          <span class="subtitle">Windows Desktop Ecosystem v1.0.0</span>
+          <h1>SnapLoad Desktop <span class="brand-badge">v1.0.0</span></h1>
+          <span class="subtitle">Windows Native Messaging Environment</span>
         </div>
       </div>
       <div class="nav-tabs">
@@ -37,42 +30,55 @@
       </div>
     </header>
 
-    <!-- Main Content Panels -->
+    <!-- Main Body -->
     <main class="content-body">
       <!-- PANEL 1: Installation Wizard -->
       <section id="panel-install" class="wizard-panel active">
-        <!-- Step 1: Welcome & Browser Detection -->
+        <!-- Step 1: Detect & Select Browsers -->
         <div id="step-detect" class="wizard-step">
-          <h2>Detected Web Browsers</h2>
-          <p class="description">
-            SnapLoad integrates directly into your browser via Native Messaging. Select which browsers to configure:
-          </p>
+          <div class="section-header">
+            <h2>Select Web Browsers</h2>
+            <p class="description">
+              SnapLoad Desktop Engine communicates with your browser via standard Native Messaging. Select target browsers to register:
+            </p>
+          </div>
 
           <div id="browser-list" class="browser-grid">
-            <div class="loading-spinner">Detecting installed browsers...</div>
+            <div style="grid-column: 1 / -1; padding: 24px; text-align: center; color: var(--text-muted);">
+              Detecting installed browsers...
+            </div>
           </div>
 
           <div class="components-card">
-            <h3>Components to Install</h3>
+            <h3>Installation Components</h3>
             <label class="checkbox-item disabled">
               <input type="checkbox" checked disabled />
               <div class="component-info">
-                <strong>SnapLoad Desktop Engine</strong>
-                <span>Native Messaging Host for browser communication</span>
+                <div class="component-title-row">
+                  <strong>SnapLoad Desktop Engine</strong>
+                  <span class="pill-badge core">Required</span>
+                </div>
+                <span>High-performance native messaging host communicating via binary JSON stdio</span>
               </div>
             </label>
             <label class="checkbox-item">
               <input type="checkbox" id="install-ytdlp" checked />
               <div class="component-info">
-                <strong>yt-dlp Multimedia Extractor</strong>
-                <span>Official latest extractor core for YouTube, TikTok, Spotify & 1000+ sites</span>
+                <div class="component-title-row">
+                  <strong>yt-dlp Core Extractor</strong>
+                  <span class="pill-badge">Recommended</span>
+                </div>
+                <span>Latest multimedia extraction binary for YouTube, TikTok, Spotify & 1000+ streaming sites</span>
               </div>
             </label>
             <label class="checkbox-item">
               <input type="checkbox" id="install-ffmpeg" checked />
               <div class="component-info">
-                <strong>FFmpeg Audio Converter</strong>
-                <span>High-performance audio transcoding (MP3, FLAC, M4A, OPUS, WAV)</span>
+                <div class="component-title-row">
+                  <strong>FFmpeg Media Converter</strong>
+                  <span class="pill-badge">Optional</span>
+                </div>
+                <span>High-fidelity audio transcoding engine for MP3, FLAC, M4A, OPUS and WAV conversion</span>
               </div>
             </label>
           </div>
@@ -84,85 +90,146 @@
           </div>
         </div>
 
-        <!-- Step 2: Progress & Execution -->
+        <!-- Step 2: Installation Progress -->
         <div id="step-progress" class="wizard-step hidden">
-          <h2>Installing SnapLoad...</h2>
-          <p id="progress-status-text" class="description">Setting up application directories...</p>
+          <div class="section-header">
+            <h2>Installing SnapLoad...</h2>
+            <p id="progress-status-text" class="description">Setting up application directories...</p>
+          </div>
 
+          <div class="progress-header">
+            <span style="font-size: 12px; color: var(--text-muted);">Setup Progress</span>
+            <span id="progress-percent" class="percent-label">0%</span>
+          </div>
           <div class="progress-container">
             <div id="install-progress-bar" class="progress-bar"></div>
           </div>
-          <span id="progress-percent" class="percent-label">0%</span>
 
-          <div class="log-console">
-            <div id="install-logs"></div>
-          </div>
+          <div class="log-console" id="install-logs"></div>
         </div>
 
-        <!-- Step 3: Success & Extension Guidance -->
+        <!-- Step 3: Success & Browser Activation -->
         <div id="step-complete" class="wizard-step hidden">
           <div class="success-banner">
-            <span class="success-icon">✓</span>
-            <h2>SnapLoad Successfully Installed!</h2>
+            <div class="success-icon-badge">✓</div>
+            <div>
+              <h3>SnapLoad Desktop Successfully Configured</h3>
+              <p>The native messaging host and registry entries are active. Enable the extension in your browser below:</p>
+            </div>
           </div>
-          <p class="description">
-            Desktop Engine and Native Messaging hosts have been configured. Now activate your browser extension:
-          </p>
 
-          <div class="extension-guide-cards">
-            <div class="guide-card">
-              <h4>Chromium Browsers</h4>
-              <p>Chrome, Edge, Brave, Opera</p>
-              <div class="guide-actions">
-                <button id="open-chrome-dir" class="btn secondary">Open Chrome Extension Folder</button>
-                <a href="https://chrome.google.com/webstore" target="_blank" class="btn outline">Web Store</a>
+          <div class="extension-cards-grid">
+            <!-- Chromium Card -->
+            <div class="guide-box">
+              <div class="guide-box-header">
+                <div>
+                  <h4>Chromium Browsers</h4>
+                  <span>Chrome, Edge, Brave, Opera</span>
+                </div>
+                <span class="pill-badge core">Ready</span>
+              </div>
+              <p class="description" style="font-size: 12px;">
+                Unpacked extension deployed to SnapLoad app folder. You can launch immediately or load into your profile:
+              </p>
+              <div class="guide-actions-stack">
+                <button id="btn-launch-chromium" class="btn primary">
+                  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+                  Launch Browser with SnapLoad (1-Click)
+                </button>
+                <button id="btn-open-chromium-ext" class="btn secondary">
+                  Open chrome://extensions (Copies Path)
+                </button>
+                <button id="btn-open-chromium-folder" class="btn secondary">
+                  Explore Extension Folder
+                </button>
+                <button id="btn-webstore" class="btn outline">
+                  Open Chrome Web Store
+                </button>
+              </div>
+              <div class="guide-tip">
+                Tip: In <strong>chrome://extensions</strong>, switch on <strong>Developer mode</strong> (top right) and click <strong>Load unpacked</strong>. The path was copied to your clipboard.
               </div>
             </div>
 
-            <div class="guide-card">
-              <h4>Mozilla Firefox</h4>
-              <p>Firefox & Firefox Developer Edition</p>
-              <div class="guide-actions">
-                <button id="open-firefox-dir" class="btn secondary">Open Firefox Extension Folder</button>
-                <a href="https://addons.mozilla.org" target="_blank" class="btn outline">AMO Store</a>
+            <!-- Firefox Card -->
+            <div class="guide-box">
+              <div class="guide-box-header">
+                <div>
+                  <h4>Mozilla Firefox</h4>
+                  <span>Firefox & Firefox Developer Edition</span>
+                </div>
+                <span class="pill-badge">Registered</span>
+              </div>
+              <p class="description" style="font-size: 12px;">
+                Configured via official Windows Registry sideloading (<code>snapload@darkskyee.github.io</code>):
+              </p>
+              <div class="guide-actions-stack">
+                <button id="btn-open-firefox-addons" class="btn secondary">
+                  Open about:addons
+                </button>
+                <button id="btn-open-firefox-folder" class="btn secondary">
+                  Explore Firefox XPI Folder
+                </button>
+                <button id="btn-amo-store" class="btn outline">
+                  Mozilla Firefox Add-ons (AMO)
+                </button>
+              </div>
+              <div class="guide-tip">
+                Firefox will recognize SnapLoad upon browser startup. In <strong>about:addons</strong>, click enable if prompted.
               </div>
             </div>
+          </div>
+
+          <!-- Quick Test On Step 3 -->
+          <div class="diag-card" style="padding: 14px 18px;">
+            <div class="diag-header">
+              <div>
+                <strong style="font-size: 13px;">Live Integrity Test</strong>
+                <p style="font-size: 12px; color: var(--text-secondary);">Verify Native Messaging roundtrip and engine readiness right now</p>
+              </div>
+              <button id="btn-step3-verify" class="btn accent">
+                Run Live Test
+              </button>
+            </div>
+            <div id="step3-verify-results" style="display: none; margin-top: 10px;"></div>
           </div>
 
           <div class="action-footer">
-            <button id="finish-btn" class="btn primary">Finish Setup</button>
+            <button id="finish-btn" class="btn primary">Finish & Exit Setup</button>
           </div>
         </div>
       </section>
 
       <!-- PANEL 2: Updates Check -->
       <section id="panel-updates" class="wizard-panel">
-        <h2>SnapLoad Updates Center</h2>
-        <p class="description">Check and update SnapLoad Engine, yt-dlp core, and FFmpeg independently:</p>
+        <div class="section-header">
+          <h2>Component Updates</h2>
+          <p class="description">Check release versions and binary health for each SnapLoad ecosystem component:</p>
+        </div>
 
         <div class="update-cards-container">
           <div class="update-card" id="card-engine">
-            <div class="update-header">
+            <div class="update-card-info">
               <strong>SnapLoad Desktop Engine</strong>
-              <span id="engine-cur-ver" class="badge">Checking...</span>
+              <span id="engine-update-msg">Loading engine status...</span>
             </div>
-            <p id="engine-update-msg">Loading version information...</p>
+            <span id="engine-cur-ver" class="pill-badge core">Checking...</span>
           </div>
 
           <div class="update-card" id="card-ytdlp">
-            <div class="update-header">
+            <div class="update-card-info">
               <strong>yt-dlp Core Extractor</strong>
-              <span id="ytdlp-cur-ver" class="badge">Checking...</span>
+              <span id="ytdlp-update-msg">Loading extractor release...</span>
             </div>
-            <p id="ytdlp-update-msg">Loading extractor release...</p>
+            <span id="ytdlp-cur-ver" class="pill-badge">Checking...</span>
           </div>
 
           <div class="update-card" id="card-ffmpeg">
-            <div class="update-header">
-              <strong>FFmpeg Media Converter</strong>
-              <span id="ffmpeg-cur-ver" class="badge">Checking...</span>
+            <div class="update-card-info">
+              <strong>FFmpeg Media Transcoder</strong>
+              <span id="ffmpeg-update-msg">Loading FFmpeg status...</span>
             </div>
-            <p id="ffmpeg-update-msg">Loading FFmpeg release...</p>
+            <span id="ffmpeg-cur-ver" class="pill-badge">Checking...</span>
           </div>
         </div>
 
@@ -171,29 +238,71 @@
         </div>
       </section>
 
-      <!-- PANEL 3: Maintenance & Uninstall -->
+      <!-- PANEL 3: Maintenance & Diagnostics -->
       <section id="panel-manage" class="wizard-panel">
-        <h2>System Maintenance & Diagnostics</h2>
-        <p class="description">Verify installation integrity or cleanly uninstall SnapLoad:</p>
-
-        <div class="diag-card">
-          <h3>Installation Integrity</h3>
-          <ul id="diag-list" class="diag-list">
-            <li>Checking configuration...</li>
-          </ul>
-          <button id="run-verify-btn" class="btn secondary">Verify Installation Now</button>
+        <div class="section-header">
+          <h2>Maintenance & System Diagnostics</h2>
+          <p class="description">Verify installation integrity, inspect component directories, or cleanly uninstall SnapLoad:</p>
         </div>
 
+        <!-- Diagnostic Card -->
+        <div class="diag-card">
+          <div class="diag-header">
+            <div>
+              <h3>System Integrity Diagnostics</h3>
+              <p style="font-size: 12px; color: var(--text-secondary);">Tests engine binaries, registry keys, manifests, and live IPC stdio roundtrip</p>
+            </div>
+            <div style="display: flex; align-items: center; gap: 10px;">
+              <span id="diag-summary" class="diag-summary-pill">Not Tested</span>
+              <button id="run-verify-btn" class="btn primary">Verify Installation Now</button>
+            </div>
+          </div>
+
+          <ul id="diag-list" class="diag-list">
+            <li style="padding: 14px; text-align: center; color: var(--text-muted);">
+              Click "Verify Installation Now" to run diagnostic checks.
+            </li>
+          </ul>
+        </div>
+
+        <!-- Quick Access Folders Card -->
+        <div class="folders-card">
+          <h3>Quick Access Locations</h3>
+          <div class="folders-button-row">
+            <button id="btn-open-appdata" class="btn secondary">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+              Open SnapLoad AppData
+            </button>
+            <button id="btn-open-ext-dir" class="btn secondary">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line><line x1="9" y1="21" x2="9" y2="9"></line></svg>
+              Open Extensions Folder
+            </button>
+            <button id="btn-open-dl-dir" class="btn secondary">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+              Open Downloads Folder
+            </button>
+          </div>
+        </div>
+
+        <!-- Uninstall Card -->
         <div class="uninstall-card">
-          <h3>Uninstallation</h3>
+          <h3>Uninstall Desktop Environment</h3>
           <p>
-            Remove all SnapLoad engine binaries, Native Messaging registrations, and configuration.
-            <em>Your downloaded media in Downloads\SnapLoad will never be deleted.</em>
+            Removes all SnapLoad engine binaries, Native Messaging registrations, and Windows Registry keys.
+            <em>Your downloaded media files in Downloads\SnapLoad will never be removed.</em>
           </p>
-          <button id="uninstall-btn" class="btn danger">Clean Uninstall SnapLoad</button>
+          <div style="display: flex; justify-content: flex-start;">
+            <button id="uninstall-btn" class="btn danger">Clean Uninstall SnapLoad</button>
+          </div>
         </div>
       </section>
     </main>
+
+    <!-- Floating Toast Notification -->
+    <div id="toast" class="toast-container">
+      <span class="toast-icon">✓</span>
+      <span id="toast-text">Action completed successfully</span>
+    </div>
   </div>
 
   <script type="module" src="/src/main.ts"></script>
