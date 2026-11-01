@@ -10,12 +10,12 @@
                                             },
                       "engine":  {
                                      "url":  "https://github.com/DarkSkyee/snapload-windows/releases/download/v1.0.0/snapload-engine.exe",
-                                     "sha256":  "2fdc49a6760534066d2d7f80a464b005b03f1517e30499a3429f74ed77a7bbdb",
+                                     "sha256":  "adae3d8ce94f2c6308ce4c994571552fe5a3bd65a29474aeeb063be701910d4d",
                                      "file":  "snapload-engine.exe"
                                  },
                       "setup":  {
                                     "url":  "https://github.com/DarkSkyee/snapload-windows/releases/download/v1.0.0/snapload-setup.exe",
-                                    "sha256":  "3c86ee7d4ee51c4b11125c27550f9777efd21bf0c65f18d8f02041c4839bba10",
+                                    "sha256":  "ee6acf6ac4d08147cfb3aac24dfa3596823dd3f0e3a41c181295c8464b8b7c3e",
                                     "file":  "snapload-setup.exe"
                                 },
                       "extension_chromium":  {
