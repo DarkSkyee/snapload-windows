@@ -100,7 +100,7 @@ impl BrowserDetector {
         None
     }
 
-    fn find_chrome() -> Option<String> {
+    pub fn find_chrome() -> Option<String> {
         let mut candidates = Vec::new();
         if let Some(prog) = std::env::var_os("ProgramFiles") {
             candidates.push(PathBuf::from(prog).join("Google\\Chrome\\Application\\chrome.exe"));
@@ -117,7 +117,7 @@ impl BrowserDetector {
         )
     }
 
-    fn find_edge() -> Option<String> {
+    pub fn find_edge() -> Option<String> {
         let mut candidates = Vec::new();
         if let Some(prog86) = std::env::var_os("ProgramFiles(x86)") {
             candidates.push(PathBuf::from(prog86).join("Microsoft\\Edge\\Application\\msedge.exe"));
@@ -131,7 +131,7 @@ impl BrowserDetector {
         )
     }
 
-    fn find_brave() -> Option<String> {
+    pub fn find_brave() -> Option<String> {
         let mut candidates = Vec::new();
         if let Some(prog) = std::env::var_os("ProgramFiles") {
             candidates.push(
@@ -149,7 +149,7 @@ impl BrowserDetector {
         )
     }
 
-    fn find_opera() -> Option<String> {
+    pub fn find_opera() -> Option<String> {
         let mut candidates = Vec::new();
         if let Some(local) = std::env::var_os("LOCALAPPDATA") {
             candidates.push(PathBuf::from(local).join("Programs\\Opera\\launcher.exe"));
@@ -163,7 +163,7 @@ impl BrowserDetector {
         )
     }
 
-    fn find_firefox() -> Option<String> {
+    pub fn find_firefox() -> Option<String> {
         let mut candidates = Vec::new();
         if let Some(prog) = std::env::var_os("ProgramFiles") {
             candidates.push(PathBuf::from(prog).join("Mozilla Firefox\\firefox.exe"));

@@ -177,6 +177,8 @@ impl DependencyManager {
     async fn probe_version(exe: &Path, args: &[&str]) -> Result<String, std::io::Error> {
         let mut cmd = Command::new(exe);
         cmd.args(args);
+        #[cfg(windows)]
+        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
         // Do not inherit standard input/output to avoid blocking
         cmd.stdin(std::process::Stdio::null());
         cmd.stdout(std::process::Stdio::piped());
