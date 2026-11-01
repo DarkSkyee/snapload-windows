@@ -29,24 +29,15 @@ if ($LASTEXITCODE -ne 0) {
 }
 Pop-Location
 
-# 3. Build Extension
-Write-Host "`n[3/4] Building Browser Extensions (Chromium & Firefox)..." -ForegroundColor Yellow
-Push-Location "$root\extension"
-npm run typecheck
+# 3. Build & Package Browser Extensions
+Write-Host "`n[3/4] Building and packaging Browser Extensions (Chromium & Firefox)..." -ForegroundColor Yellow
+& "$root\scripts\build\build_extension.ps1"
 if ($LASTEXITCODE -ne 0) {
-    Write-Host "Extension typecheck failed!" -ForegroundColor Red
-    Pop-Location
+    Write-Host "Extension packaging failed!" -ForegroundColor Red
     exit 1
 }
-npm run build
-if ($LASTEXITCODE -ne 0) {
-    Write-Host "Extension build failed!" -ForegroundColor Red
-    Pop-Location
-    exit 1
-}
-Pop-Location
 
-# 4. Build Installer Frontend
+# 4. Build Installer & Management App
 Write-Host "`n[4/4] Building Installer & Management App..." -ForegroundColor Yellow
 Push-Location "$root\installer"
 npm run build
@@ -55,6 +46,15 @@ if ($LASTEXITCODE -ne 0) {
     Pop-Location
     exit 1
 }
+Push-Location "$root\installer\src-tauri"
+cargo build --release
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "Installer binary build failed!" -ForegroundColor Red
+    Pop-Location
+    Pop-Location
+    exit 1
+}
+Pop-Location
 Pop-Location
 
 Write-Host "`n==========================================" -ForegroundColor Green

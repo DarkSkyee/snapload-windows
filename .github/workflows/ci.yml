@@ -53,6 +53,16 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
+      - name: Build Prerequisites (Engine & Extensions)
+        run: |
+          cd engine
+          cargo build --release
+          cd ../extension
+          npm ci || npm install
+          npm run build
+          Compress-Archive -Path dist/chrome/* -DestinationPath dist/snapload-extension-chromium.zip -Force
+          Compress-Archive -Path dist/firefox/* -DestinationPath dist/snapload-extension-firefox.zip -Force
+
       - name: Build Installer UI & Binary
         run: |
           cd installer
