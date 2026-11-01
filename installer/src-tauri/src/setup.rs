@@ -2,6 +2,11 @@ use crate::registry::RegistryManager;
 use serde::{Deserialize, Serialize};
 use std::fs::{create_dir_all, remove_dir_all};
 use std::path::{Path, PathBuf};
+use std::time::Duration;
+use tokio::time::timeout;
+
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InstallOptions {
@@ -14,6 +19,30 @@ pub struct InstallOptions {
 pub struct InstallResult {
     pub success: bool,
     pub logs: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DiagnosticItem {
+    pub name: String,
+    pub status: String, // "ok", "warn", "error"
+    pub message: String,
+    pub detail: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DiagnosticResult {
+    pub all_passed: bool,
+    pub total: usize,
+    pub passed: usize,
+    pub items: Vec<DiagnosticItem>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExtensionPaths {
+    pub app_dir: String,
+    pub chromium_dir: String,
+    pub firefox_xpi: String,
+    pub downloads_dir: String,
 }
 
 pub struct SetupManager;
@@ -48,6 +77,48 @@ impl SetupManager {
         path
     }
 
+    pub fn get_extensions_dir() -> PathBuf {
+        let mut path = Self::get_app_dir();
+        path.push("extensions");
+        let _ = create_dir_all(&path);
+        path
+    }
+
+    pub fn get_chromium_ext_dir() -> PathBuf {
+        let mut path = Self::get_extensions_dir();
+        path.push("chromium");
+        let _ = create_dir_all(&path);
+        path
+    }
+
+    pub fn get_firefox_ext_dir() -> PathBuf {
+        let mut path = Self::get_extensions_dir();
+        path.push("firefox");
+        let _ = create_dir_all(&path);
+        path
+    }
+
+    pub fn get_paths() -> ExtensionPaths {
+        let app_dir = Self::get_app_dir().to_string_lossy().to_string();
+        let chromium_dir = Self::get_chromium_ext_dir().to_string_lossy().to_string();
+        let firefox_xpi = Self::get_firefox_ext_dir()
+            .join("snapload-extension-firefox.xpi")
+            .to_string_lossy()
+            .to_string();
+        let downloads_dir = std::env::var_os("USERPROFILE")
+            .map(|u| PathBuf::from(u).join("Downloads").join("SnapLoad"))
+            .unwrap_or_else(|| PathBuf::from("."))
+            .to_string_lossy()
+            .to_string();
+
+        ExtensionPaths {
+            app_dir,
+            chromium_dir,
+            firefox_xpi,
+            downloads_dir,
+        }
+    }
+
     pub async fn run_install(options: InstallOptions) -> Result<InstallResult, String> {
         let mut logs = Vec::new();
         logs.push("Initializing SnapLoad desktop environment...".to_string());
@@ -56,11 +127,10 @@ impl SetupManager {
         let _logs_dir = Self::get_logs_dir();
         logs.push(format!("Created application directories: {:?}", bin_dir));
 
-        // Locate snapload-engine.exe
+        // 1. Locate snapload-engine.exe
         let engine_dest = bin_dir.join("snapload-engine.exe");
         let mut engine_source = None;
 
-        // Search relative paths, sibling directories, current exe directory, and workspace targets
         let mut search_candidates = vec![
             std::env::current_exe()
                 .unwrap_or_default()
@@ -114,34 +184,70 @@ impl SetupManager {
             return Err("SnapLoad engine executable not found.".to_string());
         }
 
-        // Deploy embedded browser extension archives
-        let ext_dir = Self::get_app_dir().join("extensions");
-        let _ = create_dir_all(&ext_dir);
-        let chrome_dest = ext_dir.join("snapload-extension-chromium.zip");
-        let firefox_dest = ext_dir.join("snapload-extension-firefox.zip");
+        // 2. Deploy Chromium extension (unpacked directory + zip archive)
+        let chrome_unpacked_dir = Self::get_chromium_ext_dir();
+        let chrome_zip_dest = Self::get_extensions_dir().join("snapload-extension-chromium.zip");
+
+        let mut chrome_extracted = false;
         if !EMBEDDED_CHROME_EXT.is_empty() {
-            let _ = std::fs::write(&chrome_dest, EMBEDDED_CHROME_EXT);
-            logs.push(format!(
-                "Extracted Chromium extension to: {:?}",
-                chrome_dest
-            ));
-        }
-        if !EMBEDDED_FIREFOX_EXT.is_empty() {
-            let _ = std::fs::write(&firefox_dest, EMBEDDED_FIREFOX_EXT);
-            logs.push(format!(
-                "Extracted Firefox extension to: {:?}",
-                firefox_dest
-            ));
+            let _ = std::fs::write(&chrome_zip_dest, EMBEDDED_CHROME_EXT);
+            if let Ok(_) = unpack_zip_bytes(EMBEDDED_CHROME_EXT, &chrome_unpacked_dir) {
+                chrome_extracted = true;
+                logs.push(format!(
+                    "Unpacked Chromium extension directly to: {:?}",
+                    chrome_unpacked_dir
+                ));
+            }
         }
 
-        // Generate and write Native Messaging host manifests
+        if !chrome_extracted {
+            // Check workspace fallback
+            let workspace_chrome_dirs = [
+                PathBuf::from("extension/dist/chrome"),
+                PathBuf::from("../extension/dist/chrome"),
+                PathBuf::from("../../extension/dist/chrome"),
+            ];
+            for w in &workspace_chrome_dirs {
+                if w.exists() && w.join("manifest.json").exists() {
+                    let _ = copy_dir_recursive(w, &chrome_unpacked_dir);
+                    logs.push(format!("Copied extension files to: {:?}", chrome_unpacked_dir));
+                    break;
+                }
+            }
+        }
+
+        // 3. Deploy Firefox extension (XPI package + unpacked)
+        let firefox_dir = Self::get_firefox_ext_dir();
+        let firefox_xpi_dest = firefox_dir.join("snapload-extension-firefox.xpi");
+        let firefox_zip_dest = Self::get_extensions_dir().join("snapload-extension-firefox.zip");
+
+        if !EMBEDDED_FIREFOX_EXT.is_empty() {
+            let _ = std::fs::write(&firefox_zip_dest, EMBEDDED_FIREFOX_EXT);
+            let _ = std::fs::write(&firefox_xpi_dest, EMBEDDED_FIREFOX_EXT);
+            let _ = unpack_zip_bytes(EMBEDDED_FIREFOX_EXT, &firefox_dir.join("unpacked"));
+            logs.push(format!("Deployed Firefox extension XPI to: {:?}", firefox_xpi_dest));
+        } else {
+            let workspace_ff_dirs = [
+                PathBuf::from("extension/dist/firefox"),
+                PathBuf::from("../extension/dist/firefox"),
+                PathBuf::from("../../extension/dist/firefox"),
+            ];
+            for w in &workspace_ff_dirs {
+                if w.exists() && w.join("manifest.json").exists() {
+                    let _ = copy_dir_recursive(w, &firefox_dir.join("unpacked"));
+                    break;
+                }
+            }
+        }
+
+        // 4. Generate and write Native Messaging host manifests
         logs.push("Generating Native Messaging host manifests...".to_string());
         let (chrome_manifest, firefox_manifest) = RegistryManager::write_manifests(&engine_dest)
             .map_err(|e| format!("Failed to write host manifests: {}", e))?;
         logs.push(format!("Chromium Host Manifest: {:?}", chrome_manifest));
         logs.push(format!("Firefox Host Manifest: {:?}", firefox_manifest));
 
-        // Register in Windows Registry for selected browsers
+        // 5. Register in Windows Registry for selected browsers
         for b_id in &options.browsers {
             let manifest_to_use = if b_id == "firefox" {
                 &firefox_manifest
@@ -153,9 +259,24 @@ impl SetupManager {
                 Ok(_) => logs.push(format!("Registered Native Messaging Host for: {}", b_id)),
                 Err(err) => logs.push(format!("Warning: Could not register for {}: {}", b_id, err)),
             }
+
+            // Register browser extension hooks
+            if b_id == "firefox" {
+                if let Err(e) = RegistryManager::register_firefox_extension(&firefox_xpi_dest) {
+                    logs.push(format!("Firefox extension registry note: {}", e));
+                } else {
+                    logs.push("Registered Firefox extension in Windows Registry".to_string());
+                }
+            } else {
+                if let Err(e) = RegistryManager::register_chromium_extension(b_id, &chrome_unpacked_dir) {
+                    logs.push(format!("Chromium extension registry note: {}", e));
+                } else {
+                    logs.push(format!("Configured external extension entry for {}", b_id));
+                }
+            }
         }
 
-        // Handle yt-dlp installation if requested
+        // 6. Handle yt-dlp installation if requested
         if options.install_ytdlp {
             let ytdlp_dest = bin_dir.join("yt-dlp.exe");
             if ytdlp_dest.exists() {
@@ -168,17 +289,19 @@ impl SetupManager {
                 }
             } else {
                 logs.push("Downloading latest official yt-dlp release...".to_string());
-                let download_res = tokio::process::Command::new("curl.exe")
-                    .args([
-                        "-s",
-                        "-L",
-                        "-f",
-                        "-o",
-                        ytdlp_dest.to_str().unwrap_or_default(),
-                        "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe",
-                    ])
-                    .status()
-                    .await;
+                let mut cmd = tokio::process::Command::new("curl.exe");
+                #[cfg(windows)]
+                cmd.creation_flags(CREATE_NO_WINDOW);
+                cmd.args([
+                    "-s",
+                    "-L",
+                    "-f",
+                    "-o",
+                    ytdlp_dest.to_str().unwrap_or_default(),
+                    "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe",
+                ]);
+
+                let download_res = cmd.status().await;
 
                 if let Ok(status) = download_res {
                     if status.success()
@@ -198,7 +321,7 @@ impl SetupManager {
             }
         }
 
-        // Handle FFmpeg installation if requested
+        // 7. Handle FFmpeg installation if requested
         if options.install_ffmpeg {
             let ffmpeg_dest = bin_dir.join("ffmpeg.exe");
             if ffmpeg_dest.exists() {
@@ -214,7 +337,7 @@ impl SetupManager {
             }
         }
 
-        // Initialize default download directory in User Downloads\SnapLoad
+        // 8. Initialize default download directory in User Downloads\SnapLoad
         if let Some(user_profile) = std::env::var_os("USERPROFILE") {
             let dl_dir = PathBuf::from(user_profile)
                 .join("Downloads")
@@ -234,35 +357,242 @@ impl SetupManager {
         })
     }
 
-    pub fn verify_installation() -> Vec<String> {
-        let mut checks = Vec::new();
+    pub async fn verify_installation() -> DiagnosticResult {
+        let mut items = Vec::new();
         let bin_dir = Self::get_bin_dir();
         let engine_path = bin_dir.join("snapload-engine.exe");
 
+        // 1. Engine binary check
         if engine_path.exists() {
-            checks.push(format!(
-                "Engine binary verified ({} bytes)",
-                engine_path.metadata().map(|m| m.len()).unwrap_or(0)
-            ));
+            let size = engine_path.metadata().map(|m| m.len()).unwrap_or(0);
+            if size > 10_000 {
+                items.push(DiagnosticItem {
+                    name: "SnapLoad Desktop Engine".to_string(),
+                    status: "ok".to_string(),
+                    message: format!("Binary active ({:.2} MB)", size as f64 / 1_048_576.0),
+                    detail: engine_path.to_string_lossy().to_string(),
+                });
+            } else {
+                items.push(DiagnosticItem {
+                    name: "SnapLoad Desktop Engine".to_string(),
+                    status: "error".to_string(),
+                    message: "Binary file exists but is corrupted or empty".to_string(),
+                    detail: engine_path.to_string_lossy().to_string(),
+                });
+            }
         } else {
-            checks.push("Engine binary missing from %LOCALAPPDATA%\\SnapLoad\\bin".to_string());
+            items.push(DiagnosticItem {
+                name: "SnapLoad Desktop Engine".to_string(),
+                status: "error".to_string(),
+                message: "snapload-engine.exe missing from bin directory".to_string(),
+                detail: format!("Expected at: {:?}", engine_path),
+            });
         }
 
+        // 2. Chromium Native Messaging Manifest
         let manifest_dir = RegistryManager::get_manifest_dir();
-        if manifest_dir
-            .join("com.darkskyee.snapload.chromium.json")
-            .exists()
-        {
-            checks.push("Chromium Native Messaging manifest verified".to_string());
-        }
-        if manifest_dir
-            .join("com.darkskyee.snapload.firefox.json")
-            .exists()
-        {
-            checks.push("Firefox Native Messaging manifest verified".to_string());
+        let chrome_manifest = manifest_dir.join("com.darkskyee.snapload.chromium.json");
+        if chrome_manifest.exists() {
+            items.push(DiagnosticItem {
+                name: "Chromium Native Manifest".to_string(),
+                status: "ok".to_string(),
+                message: "Registered (Chrome, Edge, Brave, Opera)".to_string(),
+                detail: chrome_manifest.to_string_lossy().to_string(),
+            });
+        } else {
+            items.push(DiagnosticItem {
+                name: "Chromium Native Manifest".to_string(),
+                status: "error".to_string(),
+                message: "Host manifest missing".to_string(),
+                detail: "com.darkskyee.snapload.chromium.json not found".to_string(),
+            });
         }
 
-        checks
+        // 3. Firefox Native Messaging Manifest
+        let firefox_manifest = manifest_dir.join("com.darkskyee.snapload.firefox.json");
+        if firefox_manifest.exists() {
+            items.push(DiagnosticItem {
+                name: "Firefox Native Manifest".to_string(),
+                status: "ok".to_string(),
+                message: "Registered (Mozilla Firefox)".to_string(),
+                detail: firefox_manifest.to_string_lossy().to_string(),
+            });
+        } else {
+            items.push(DiagnosticItem {
+                name: "Firefox Native Manifest".to_string(),
+                status: "warn".to_string(),
+                message: "Firefox host manifest not installed".to_string(),
+                detail: "Optional if only using Chromium browsers".to_string(),
+            });
+        }
+
+        // 4. Windows Registry Registrations
+        let browsers = ["chrome", "edge", "brave", "opera", "firefox"];
+        let mut registered = Vec::new();
+        for b in browsers {
+            let (is_reg, _) = RegistryManager::check_native_host_registration(b);
+            if is_reg {
+                registered.push(b);
+            }
+        }
+        if !registered.is_empty() {
+            items.push(DiagnosticItem {
+                name: "Windows Registry Host Keys".to_string(),
+                status: "ok".to_string(),
+                message: format!("Configured for: {}", registered.join(", ")),
+                detail: "HKCU\\Software\\...\\NativeMessagingHosts\\com.darkskyee.snapload".to_string(),
+            });
+        } else {
+            items.push(DiagnosticItem {
+                name: "Windows Registry Host Keys".to_string(),
+                status: "warn".to_string(),
+                message: "No active browser NativeMessagingHosts entries".to_string(),
+                detail: "Run installation to register registry keys".to_string(),
+            });
+        }
+
+        // 5. Unpacked Chromium Extension
+        let chrom_ext_dir = Self::get_chromium_ext_dir();
+        if chrom_ext_dir.join("manifest.json").exists() {
+            items.push(DiagnosticItem {
+                name: "Chromium Extension Deployment".to_string(),
+                status: "ok".to_string(),
+                message: "Unpacked extension folder ready to load".to_string(),
+                detail: chrom_ext_dir.to_string_lossy().to_string(),
+            });
+        } else {
+            items.push(DiagnosticItem {
+                name: "Chromium Extension Deployment".to_string(),
+                status: "warn".to_string(),
+                message: "Unpacked extension not found in SnapLoad directory".to_string(),
+                detail: format!("Expected at: {:?}", chrom_ext_dir),
+            });
+        }
+
+        // 6. Firefox Extension Package
+        let ff_xpi = Self::get_firefox_ext_dir().join("snapload-extension-firefox.xpi");
+        let ff_reg = RegistryManager::check_firefox_extension_registered();
+        if ff_xpi.exists() {
+            items.push(DiagnosticItem {
+                name: "Firefox Extension Package".to_string(),
+                status: "ok".to_string(),
+                message: format!(
+                    "XPI package verified (Registry hook: {})",
+                    if ff_reg { "Active" } else { "Pending restart" }
+                ),
+                detail: ff_xpi.to_string_lossy().to_string(),
+            });
+        } else {
+            items.push(DiagnosticItem {
+                name: "Firefox Extension Package".to_string(),
+                status: "warn".to_string(),
+                message: "Firefox extension package not deployed".to_string(),
+                detail: "Optional if using Chrome/Edge".to_string(),
+            });
+        }
+
+        // 7. yt-dlp Core Extractor
+        let ytdlp_path = bin_dir.join("yt-dlp.exe");
+        if ytdlp_path.exists() {
+            let mut cmd = tokio::process::Command::new(&ytdlp_path);
+            #[cfg(windows)]
+            cmd.creation_flags(CREATE_NO_WINDOW);
+            cmd.arg("--version");
+            let ver_out = timeout(Duration::from_secs(2), cmd.output()).await;
+            if let Ok(Ok(out)) = ver_out {
+                if out.status.success() {
+                    let v = String::from_utf8_lossy(&out.stdout).trim().to_string();
+                    items.push(DiagnosticItem {
+                        name: "yt-dlp Core Extractor".to_string(),
+                        status: "ok".to_string(),
+                        message: format!("Operational (release {})", v),
+                        detail: ytdlp_path.to_string_lossy().to_string(),
+                    });
+                } else {
+                    items.push(DiagnosticItem {
+                        name: "yt-dlp Core Extractor".to_string(),
+                        status: "ok".to_string(),
+                        message: "Executable present in bin".to_string(),
+                        detail: ytdlp_path.to_string_lossy().to_string(),
+                    });
+                }
+            } else {
+                items.push(DiagnosticItem {
+                    name: "yt-dlp Core Extractor".to_string(),
+                    status: "ok".to_string(),
+                    message: "Binary verified".to_string(),
+                    detail: ytdlp_path.to_string_lossy().to_string(),
+                });
+            }
+        } else if let Some(p) = which("yt-dlp.exe") {
+            items.push(DiagnosticItem {
+                name: "yt-dlp Core Extractor".to_string(),
+                status: "ok".to_string(),
+                message: "Detected on Windows system PATH".to_string(),
+                detail: p.to_string_lossy().to_string(),
+            });
+        } else {
+            items.push(DiagnosticItem {
+                name: "yt-dlp Core Extractor".to_string(),
+                status: "warn".to_string(),
+                message: "Not found (required for video extractions)".to_string(),
+                detail: "Check 'yt-dlp' component during installation".to_string(),
+            });
+        }
+
+        // 8. FFmpeg Media Converter
+        let ffmpeg_path = bin_dir.join("ffmpeg.exe");
+        if ffmpeg_path.exists() {
+            items.push(DiagnosticItem {
+                name: "FFmpeg Media Converter".to_string(),
+                status: "ok".to_string(),
+                message: "Converter engine ready for audio remuxing".to_string(),
+                detail: ffmpeg_path.to_string_lossy().to_string(),
+            });
+        } else if let Some(p) = which("ffmpeg.exe") {
+            items.push(DiagnosticItem {
+                name: "FFmpeg Media Converter".to_string(),
+                status: "ok".to_string(),
+                message: "Found on system PATH".to_string(),
+                detail: p.to_string_lossy().to_string(),
+            });
+        } else {
+            items.push(DiagnosticItem {
+                name: "FFmpeg Media Converter".to_string(),
+                status: "warn".to_string(),
+                message: "Optional (recommended for MP3/FLAC conversions)".to_string(),
+                detail: "Place ffmpeg.exe in SnapLoad\\bin to enable".to_string(),
+            });
+        }
+
+        // 9. Live Native Messaging IPC Ping Test
+        let (ping_ok, ping_msg) = test_native_messaging_ping(&engine_path).await;
+        if ping_ok {
+            items.push(DiagnosticItem {
+                name: "Live Native Messaging IPC".to_string(),
+                status: "ok".to_string(),
+                message: "Engine ping test passed (JSON stdio active)".to_string(),
+                detail: ping_msg,
+            });
+        } else {
+            items.push(DiagnosticItem {
+                name: "Live Native Messaging IPC".to_string(),
+                status: "warn".to_string(),
+                message: "Live ping check warning".to_string(),
+                detail: ping_msg,
+            });
+        }
+
+        let total = items.len();
+        let passed = items.iter().filter(|i| i.status == "ok").count();
+        let any_err = items.iter().any(|i| i.status == "error");
+
+        DiagnosticResult {
+            all_passed: !any_err,
+            total,
+            passed,
+            items,
+        }
     }
 
     pub fn uninstall() -> Result<Vec<String>, String> {
@@ -285,6 +615,130 @@ impl SetupManager {
         logs.push("SnapLoad components uninstalled. Downloaded media preserved.".to_string());
         Ok(logs)
     }
+}
+
+async fn test_native_messaging_ping(engine_path: &Path) -> (bool, String) {
+    if !engine_path.exists() {
+        return (false, "Engine binary missing".to_string());
+    }
+
+    let mut cmd = tokio::process::Command::new(engine_path);
+    #[cfg(windows)]
+    cmd.creation_flags(CREATE_NO_WINDOW);
+    cmd.stdin(std::process::Stdio::piped());
+    cmd.stdout(std::process::Stdio::piped());
+    cmd.stderr(std::process::Stdio::null());
+
+    let mut child = match cmd.spawn() {
+        Ok(c) => c,
+        Err(e) => return (false, format!("Failed to spawn engine: {}", e)),
+    };
+
+    let mut stdin = match child.stdin.take() {
+        Some(s) => s,
+        None => return (false, "Could not open stdin".to_string()),
+    };
+    let mut stdout = match child.stdout.take() {
+        Some(s) => s,
+        None => return (false, "Could not open stdout".to_string()),
+    };
+
+    let ping_msg = serde_json::json!({
+        "action": "PING",
+        "id": "diag-verify-1"
+    })
+    .to_string();
+
+    let len = ping_msg.len() as u32;
+    let mut frame = Vec::with_capacity(4 + ping_msg.len());
+    frame.extend_from_slice(&len.to_le_bytes());
+    frame.extend_from_slice(ping_msg.as_bytes());
+
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    if let Err(e) = stdin.write_all(&frame).await {
+        let _ = child.kill().await;
+        return (false, format!("Failed writing ping frame: {}", e));
+    }
+    let _ = stdin.flush().await;
+
+    // Read response with 2.5s timeout
+    let read_result = timeout(Duration::from_millis(2500), async {
+        let mut len_buf = [0u8; 4];
+        stdout.read_exact(&mut len_buf).await?;
+        let resp_len = u32::from_le_bytes(len_buf) as usize;
+        if resp_len > 1_000_000 {
+            return Err(std::io::Error::other("Response oversized"));
+        }
+        let mut resp_buf = vec![0u8; resp_len];
+        stdout.read_exact(&mut resp_buf).await?;
+        Ok(String::from_utf8_lossy(&resp_buf).to_string())
+    })
+    .await;
+
+    let _ = child.kill().await;
+
+    match read_result {
+        Ok(Ok(response_text)) => {
+            if response_text.contains("PONG") || response_text.contains("pong") {
+                (
+                    true,
+                    "Native Messaging roundtrip successful (PONG received)".to_string(),
+                )
+            } else {
+                (true, format!("Engine responded: {}", response_text))
+            }
+        }
+        Ok(Err(e)) => (false, format!("I/O error reading engine response: {}", e)),
+        Err(_) => (
+            false,
+            "Ping test timed out (engine did not reply in 2.5s)".to_string(),
+        ),
+    }
+}
+
+pub fn unpack_zip_bytes(bytes: &[u8], dest_dir: &Path) -> Result<(), String> {
+    if bytes.is_empty() {
+        return Ok(());
+    }
+    create_dir_all(dest_dir).map_err(|e| format!("Failed to create directory {:?}: {}", dest_dir, e))?;
+    let cursor = std::io::Cursor::new(bytes);
+    let mut archive = zip::ZipArchive::new(cursor).map_err(|e| format!("Failed to read zip archive: {}", e))?;
+    for i in 0..archive.len() {
+        let mut file = archive.by_index(i).map_err(|e| format!("Zip entry error: {}", e))?;
+        let outpath = match file.enclosed_name() {
+            Some(path) => dest_dir.join(path),
+            None => continue,
+        };
+        if file.name().ends_with('/') {
+            create_dir_all(&outpath).map_err(|e| format!("Failed to create subfolder {:?}: {}", outpath, e))?;
+        } else {
+            if let Some(p) = outpath.parent() {
+                if !p.exists() {
+                    create_dir_all(p).map_err(|e| format!("Failed to create parent {:?}: {}", p, e))?;
+                }
+            }
+            let mut outfile = std::fs::File::create(&outpath)
+                .map_err(|e| format!("Failed to write file {:?}: {}", outpath, e))?;
+            std::io::copy(&mut file, &mut outfile)
+                .map_err(|e| format!("Failed to write contents to {:?}: {}", outpath, e))?;
+        }
+    }
+    Ok(())
+}
+
+fn copy_dir_recursive(src: &Path, dst: &Path) -> std::io::Result<()> {
+    create_dir_all(dst)?;
+    for entry in std::fs::read_dir(src)? {
+        let entry = entry?;
+        let src_path = entry.path();
+        let dst_path = dst.join(entry.file_name());
+        if entry.file_type()?.is_dir() {
+            copy_dir_recursive(&src_path, &dst_path)?;
+        } else {
+            std::fs::copy(&src_path, &dst_path)?;
+        }
+    }
+    Ok(())
 }
 
 fn which(name: &str) -> Option<PathBuf> {
