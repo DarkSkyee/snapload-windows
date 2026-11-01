@@ -87,23 +87,75 @@ impl RegistryManager {
         Ok(())
     }
 
+    pub fn register_firefox_extension(xpi_path: &Path) -> Result<(), String> {
+        let subkey = r"Software\Mozilla\Firefox\Extensions";
+        let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+        let (key, _) = hkcu
+            .create_subkey(subkey)
+            .map_err(|e| format!("Failed to create Firefox Extensions registry key: {}", e))?;
+        let xpi_str = xpi_path.to_string_lossy().to_string();
+        key.set_value("snapload@darkskyee.github.io", &xpi_str)
+            .map_err(|e| format!("Failed to set Firefox Extension value: {}", e))?;
+        Ok(())
+    }
+
+    pub fn register_chromium_extension(browser_id: &str, ext_path: &Path) -> Result<(), String> {
+        let ext_id = "ikkidkbojpedpeaomipgioiigmjlpflg";
+        let subkey = match browser_id {
+            "chrome" => format!(r"Software\Google\Chrome\Extensions\{}", ext_id),
+            "edge" => format!(r"Software\Microsoft\Edge\Extensions\{}", ext_id),
+            "brave" => format!(r"Software\BraveSoftware\Brave-Browser\Extensions\{}", ext_id),
+            _ => return Ok(()),
+        };
+        let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+        let (key, _) = hkcu
+            .create_subkey(&subkey)
+            .map_err(|e| format!("Failed to create registry subkey {}: {}", subkey, e))?;
+        let path_str = ext_path.to_string_lossy().to_string();
+        let _ = key.set_value("path", &path_str);
+        let _ = key.set_value("version", &"1.0.0");
+        Ok(())
+    }
+
+    pub fn check_native_host_registration(browser_id: &str) -> (bool, Option<String>) {
+        let subkey = match browser_id {
+            "chrome" => format!(r"Software\Google\Chrome\NativeMessagingHosts\{}", HOST_NAME),
+            "edge" => format!(r"Software\Microsoft\Edge\NativeMessagingHosts\{}", HOST_NAME),
+            "brave" => format!(r"Software\BraveSoftware\Brave-Browser\NativeMessagingHosts\{}", HOST_NAME),
+            "opera" => format!(r"Software\Opera Software\Opera Stable\NativeMessagingHosts\{}", HOST_NAME),
+            "firefox" => format!(r"Software\Mozilla\NativeMessagingHosts\{}", HOST_NAME),
+            _ => return (false, None),
+        };
+        let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+        if let Ok(key) = hkcu.open_subkey(&subkey) {
+            if let Ok(val) = key.get_value::<String, _>("") {
+                return (true, Some(val));
+            }
+            return (true, None);
+        }
+        (false, None)
+    }
+
+    pub fn check_firefox_extension_registered() -> bool {
+        let subkey = r"Software\Mozilla\Firefox\Extensions";
+        let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+        if let Ok(key) = hkcu.open_subkey(subkey) {
+            return key.get_value::<String, _>("snapload@darkskyee.github.io").is_ok();
+        }
+        false
+    }
+
     pub fn unregister_all() -> Vec<String> {
         let mut removed = Vec::new();
         let subkeys = [
             format!(r"Software\Google\Chrome\NativeMessagingHosts\{}", HOST_NAME),
-            format!(
-                r"Software\Microsoft\Edge\NativeMessagingHosts\{}",
-                HOST_NAME
-            ),
-            format!(
-                r"Software\BraveSoftware\Brave-Browser\NativeMessagingHosts\{}",
-                HOST_NAME
-            ),
-            format!(
-                r"Software\Opera Software\Opera Stable\NativeMessagingHosts\{}",
-                HOST_NAME
-            ),
+            format!(r"Software\Microsoft\Edge\NativeMessagingHosts\{}", HOST_NAME),
+            format!(r"Software\BraveSoftware\Brave-Browser\NativeMessagingHosts\{}", HOST_NAME),
+            format!(r"Software\Opera Software\Opera Stable\NativeMessagingHosts\{}", HOST_NAME),
             format!(r"Software\Mozilla\NativeMessagingHosts\{}", HOST_NAME),
+            format!(r"Software\Google\Chrome\Extensions\ikkidkbojpedpeaomipgioiigmjlpflg"),
+            format!(r"Software\Microsoft\Edge\Extensions\ikkidkbojpedpeaomipgioiigmjlpflg"),
+            format!(r"Software\BraveSoftware\Brave-Browser\Extensions\ikkidkbojpedpeaomipgioiigmjlpflg"),
         ];
 
         let hkcu = RegKey::predef(HKEY_CURRENT_USER);
@@ -112,6 +164,13 @@ impl RegistryManager {
                 removed.push(sub.clone());
             }
         }
+
+        // Clean Firefox extension value
+        if let Ok(key) = hkcu.open_subkey(r"Software\Mozilla\Firefox\Extensions") {
+            let _ = key.delete_value("snapload@darkskyee.github.io");
+            removed.push("Firefox Extension Registration".to_string());
+        }
+
         removed
     }
 }

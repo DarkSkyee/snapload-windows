@@ -160,10 +160,10 @@ impl DownloadManager {
             #[cfg(windows)]
             {
                 // Force kill process tree on Windows using taskkill
-                let _ = Command::new("taskkill")
-                    .args(["/F", "/T", "/PID", &active.child_id.to_string()])
-                    .output()
-                    .await;
+                let mut cmd = Command::new("taskkill");
+                cmd.args(["/F", "/T", "/PID", &active.child_id.to_string()]);
+                cmd.creation_flags(0x08000000);
+                let _ = cmd.output().await;
             }
             return true;
         }
@@ -358,6 +358,8 @@ impl DownloadManager {
 
         let mut cmd = Command::new(&ytdlp_path);
         cmd.args(&args);
+        #[cfg(windows)]
+        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
         cmd.stdin(std::process::Stdio::null());
         cmd.stdout(std::process::Stdio::piped());
         cmd.stderr(std::process::Stdio::piped());
@@ -589,6 +591,8 @@ impl DownloadManager {
 
         let mut cmd = Command::new(&ytdlp_path);
         cmd.args(&args);
+        #[cfg(windows)]
+        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
         cmd.stdin(std::process::Stdio::null());
         cmd.stdout(std::process::Stdio::null());
         cmd.stderr(std::process::Stdio::null());

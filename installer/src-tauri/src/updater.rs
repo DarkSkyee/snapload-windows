@@ -118,14 +118,11 @@ impl UpdateChecker {
         let ytdlp_status = if let Some(ref dir) = bin_dir {
             let ytdlp_path = dir.join("yt-dlp.exe");
             if ytdlp_path.exists() {
-                match timeout(
-                    Duration::from_secs(3),
-                    tokio::process::Command::new(&ytdlp_path)
-                        .arg("--version")
-                        .output(),
-                )
-                .await
-                {
+                let mut cmd = tokio::process::Command::new(&ytdlp_path);
+                #[cfg(windows)]
+                cmd.creation_flags(0x08000000);
+                cmd.arg("--version");
+                match timeout(Duration::from_secs(3), cmd.output()).await {
                     Ok(Ok(output)) if output.status.success() => {
                         let ver = String::from_utf8_lossy(&output.stdout).trim().to_string();
                         format!("yt-dlp release {} is installed", ver)
