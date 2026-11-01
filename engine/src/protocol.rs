@@ -118,11 +118,17 @@ pub struct CancelDownloadPayload {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "action", content = "payload", rename_all = "snake_case")]
 pub enum RequestAction {
+    #[serde(alias = "PING")]
     Ping,
+    #[serde(alias = "GET_VERSION")]
     GetVersion,
+    #[serde(alias = "CHECK_DEPENDENCIES")]
     CheckDependencies,
+    #[serde(alias = "GET_CONFIG")]
     GetConfig,
+    #[serde(alias = "START_DOWNLOAD")]
     StartDownload(StartDownloadPayload),
+    #[serde(alias = "CANCEL_DOWNLOAD")]
     CancelDownload(CancelDownloadPayload),
 }
 
