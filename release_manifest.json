@@ -1,0 +1,36 @@
+{
+    "author":  "DarkSkyee",
+    "version":  "1.0.0",
+    "repository":  "https://github.com/DarkSkyee/snapload-windows",
+    "artifacts":  {
+                      "extension_firefox":  {
+                                                "url":  "https://github.com/DarkSkyee/snapload-windows/releases/download/v1.0.0/snapload-extension-firefox.zip",
+                                                "sha256":  "1aa2e0fa7034f3ddf7728e08c2bdda20ea87a8692cf4fdbdca29677a8144efec",
+                                                "file":  "snapload-extension-firefox.zip"
+                                            },
+                      "engine":  {
+                                     "url":  "https://github.com/DarkSkyee/snapload-windows/releases/download/v1.0.0/snapload-engine.exe",
+                                     "sha256":  "2fdc49a6760534066d2d7f80a464b005b03f1517e30499a3429f74ed77a7bbdb",
+                                     "file":  "snapload-engine.exe"
+                                 },
+                      "setup":  {
+                                    "url":  "https://github.com/DarkSkyee/snapload-windows/releases/download/v1.0.0/snapload-setup.exe",
+                                    "sha256":  "3c86ee7d4ee51c4b11125c27550f9777efd21bf0c65f18d8f02041c4839bba10",
+                                    "file":  "snapload-setup.exe"
+                                },
+                      "extension_chromium":  {
+                                                 "url":  "https://github.com/DarkSkyee/snapload-windows/releases/download/v1.0.0/snapload-extension-chromium.zip",
+                                                 "sha256":  "bf51b07cf91db99e96d4a99cec67efc9af5c4a02538569c8481642e9154b3ed9",
+                                                 "file":  "snapload-extension-chromium.zip"
+                                             }
+                  },
+    "dependencies":  {
+                         "ytdlp":  {
+                                       "source":  "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe"
+                                   },
+                         "ffmpeg":  {
+                                        "source":  "https://github.com/GyanD/codexffmpeg/releases/latest"
+                                    }
+                     },
+    "release_date":  "2026-11-01"
+}
