@@ -644,7 +644,7 @@ async fn test_native_messaging_ping(engine_path: &Path) -> (bool, String) {
     };
 
     let ping_msg = serde_json::json!({
-        "action": "PING",
+        "action": "ping",
         "id": "diag-verify-1"
     })
     .to_string();
@@ -685,7 +685,7 @@ async fn test_native_messaging_ping(engine_path: &Path) -> (bool, String) {
                     "Native Messaging roundtrip successful (PONG received)".to_string(),
                 )
             } else {
-                (true, format!("Engine responded: {}", response_text))
+                (false, format!("Unexpected engine response: {}", response_text))
             }
         }
         Ok(Err(e)) => (false, format!("I/O error reading engine response: {}", e)),

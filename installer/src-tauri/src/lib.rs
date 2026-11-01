@@ -42,8 +42,8 @@ fn open_url(url: String) -> Result<(), String> {
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
-        let mut cmd = std::process::Command::new("rundll32.exe");
-        cmd.args(["url.dll,FileProtocolHandler", &url]);
+        let mut cmd = std::process::Command::new("explorer.exe");
+        cmd.arg(&url);
         cmd.creation_flags(0x08000000);
         cmd.spawn().map_err(|e| format!("Failed to open URL: {}", e))?;
         Ok(())
@@ -78,16 +78,34 @@ fn open_folder(path: String) -> Result<(), String> {
 
 #[tauri::command]
 fn launch_browser_with_extension(browser_id: String) -> Result<String, String> {
-    let ext_path = SetupManager::get_chromium_ext_dir();
-    let ext_path_str = ext_path.to_string_lossy().to_string();
-
     let browser_exe = match browser_id.as_str() {
         "chrome" => BrowserDetector::find_chrome(),
         "edge" => BrowserDetector::find_edge(),
         "brave" => BrowserDetector::find_brave(),
         "opera" => BrowserDetector::find_opera(),
+        "firefox" => BrowserDetector::find_firefox(),
         _ => None,
     };
+
+    if browser_id == "firefox" {
+        let xpi_path = SetupManager::get_firefox_ext_dir().join("snapload-extension-firefox.xpi");
+        if let Some(exe) = browser_exe {
+            #[cfg(windows)]
+            {
+                use std::os::windows::process::CommandExt;
+                let mut cmd = std::process::Command::new(&exe);
+                cmd.arg(xpi_path.to_string_lossy().to_string());
+                cmd.creation_flags(0x08000000);
+                cmd.spawn().map_err(|e| format!("Failed to launch Firefox: {}", e))?;
+                return Ok("Opened extension in Firefox — click 'Add' to install!".to_string());
+            }
+        } else {
+            return Err("Firefox executable not found.".to_string());
+        }
+    }
+
+    let ext_path = SetupManager::get_chromium_ext_dir();
+    let ext_path_str = ext_path.to_string_lossy().to_string();
 
     if let Some(exe) = browser_exe {
         #[cfg(windows)]
@@ -98,7 +116,7 @@ fn launch_browser_with_extension(browser_id: String) -> Result<String, String> {
             cmd.arg("https://www.youtube.com");
             cmd.creation_flags(0x08000000);
             cmd.spawn().map_err(|e| format!("Failed to launch {}: {}", browser_id, e))?;
-            Ok(format!("Launched {} with SnapLoad extension loaded!", browser_id))
+            Ok(format!("Launched {} with SnapLoad loaded!", browser_id))
         }
         #[cfg(not(windows))]
         {
@@ -108,6 +126,7 @@ fn launch_browser_with_extension(browser_id: String) -> Result<String, String> {
         Err(format!("Browser executable for '{}' not found.", browser_id))
     }
 }
+
 
 #[tauri::command]
 fn open_browser_extensions_page(browser_id: String) -> Result<String, String> {
@@ -149,6 +168,23 @@ fn open_browser_extensions_page(browser_id: String) -> Result<String, String> {
     }
 }
 
+#[tauri::command]
+fn open_folder_and_select(path: String) -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        let mut cmd = std::process::Command::new("explorer.exe");
+        cmd.arg(format!("/select,{}", path));
+        cmd.creation_flags(0x08000000);
+        cmd.spawn().map_err(|e| format!("Failed to open Explorer: {}", e))?;
+        Ok(())
+    }
+    #[cfg(not(windows))]
+    {
+        Err("Only windows is supported".to_string())
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -161,6 +197,7 @@ pub fn run() {
             get_paths,
             open_url,
             open_folder,
+            open_folder_and_select,
             launch_browser_with_extension,
             open_browser_extensions_page,
         ])
