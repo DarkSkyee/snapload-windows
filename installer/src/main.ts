@@ -280,33 +280,13 @@ document.getElementById("btn-launch-chromium")?.addEventListener("click", async 
   const browserId = getTargetChromiumBrowser();
   try {
     const res = await invoke<string>("launch_browser_with_extension", { browserId });
-    showToast(res || `Launched ${browserId} with SnapLoad extension!`);
+    showToast(res || `Launched ${browserId} with SnapLoad!`);
   } catch (e: any) {
     showToast(`Notice: ${e}`);
-    // Fallback: open extensions page
-    openChromiumExtensionsPage();
+    const paths = await fetchPaths();
+    await invoke("open_folder", { path: paths.chromium_dir });
   }
 });
-
-async function openChromiumExtensionsPage() {
-  const paths = await fetchPaths();
-  try {
-    if (navigator.clipboard) {
-      await navigator.clipboard.writeText(paths.chromium_dir);
-    }
-  } catch (_) {}
-
-  const browserId = getTargetChromiumBrowser();
-  try {
-    await invoke("open_browser_extensions_page", { browserId });
-    showToast("Path copied! Turn on Developer Mode and click 'Load unpacked'");
-  } catch (e: any) {
-    invoke("open_folder", { path: paths.chromium_dir });
-    showToast("Folder opened. Load into chrome://extensions");
-  }
-}
-
-document.getElementById("btn-open-chromium-ext")?.addEventListener("click", openChromiumExtensionsPage);
 
 document.getElementById("btn-open-chromium-folder")?.addEventListener("click", async () => {
   const paths = await fetchPaths();
@@ -314,9 +294,27 @@ document.getElementById("btn-open-chromium-folder")?.addEventListener("click", a
   showToast("Opened Chromium extension folder");
 });
 
-document.getElementById("btn-webstore")?.addEventListener("click", async () => {
-  await invoke("open_url", { url: "https://chromewebstore.google.com" });
-  showToast("Opening Chrome Web Store in browser...");
+document.getElementById("btn-copy-chromium-path")?.addEventListener("click", async () => {
+  const paths = await fetchPaths();
+  try {
+    if (navigator.clipboard) {
+      await navigator.clipboard.writeText(paths.chromium_dir);
+    }
+    showToast("Extension folder path copied to clipboard!");
+  } catch (_) {
+    showToast(`Path: ${paths.chromium_dir}`);
+  }
+});
+
+document.getElementById("btn-launch-firefox")?.addEventListener("click", async () => {
+  try {
+    const res = await invoke<string>("launch_browser_with_extension", { browserId: "firefox" });
+    showToast(res || "Opened Firefox — click 'Add' to install extension!");
+  } catch (e: any) {
+    showToast(`Notice: ${e}`);
+    const paths = await fetchPaths();
+    await invoke("open_folder", { path: paths.app_dir + "\\extensions\\firefox" });
+  }
 });
 
 document.getElementById("btn-open-firefox-addons")?.addEventListener("click", async () => {
@@ -335,30 +333,25 @@ document.getElementById("btn-open-firefox-folder")?.addEventListener("click", as
   showToast("Opened Firefox extension folder");
 });
 
-document.getElementById("btn-amo-store")?.addEventListener("click", async () => {
-  await invoke("open_url", { url: "https://addons.mozilla.org" });
-  showToast("Opening Mozilla Firefox Add-ons in browser...");
-});
-
 // Step 3 Live Verification Test
 document.getElementById("btn-step3-verify")?.addEventListener("click", async () => {
   const btn = document.getElementById("btn-step3-verify") as HTMLButtonElement;
   const container = document.getElementById("step3-verify-results") as HTMLElement;
   btn.disabled = true;
-  btn.innerHTML = `<span class="spinner"></span> Testing...`;
-  container.style.display = "block";
-  container.innerHTML = `<div style="padding: 10px; font-size: 12px; color: var(--text-secondary);">Running live Native Messaging IPC self-test...</div>`;
+  btn.innerHTML = `<span class="spinner"></span> Verifying...`;
+  container.style.display = "flex";
+  container.innerHTML = `<li style="padding: 12px; text-align: center; color: var(--text-secondary); width: 100%;"><span class="spinner" style="margin-right: 8px;"></span>Testing engine binaries, Windows registry keys, manifests and live IPC...</li>`;
 
   try {
     const result = await invoke<DiagnosticResult>("verify_installation");
     renderDiagnosticItems(container, result);
-    btn.innerHTML = `Run Live Test`;
+    btn.innerHTML = `Verify Installation Now`;
     btn.disabled = false;
-    showToast(`Test Complete: ${result.passed}/${result.total} checks passed!`);
+    showToast(`Verification complete: ${result.passed}/${result.total} checks passed!`);
   } catch (e: any) {
-    btn.innerHTML = `Run Live Test`;
+    btn.innerHTML = `Verify Installation Now`;
     btn.disabled = false;
-    container.innerHTML = `<div style="padding: 8px; color: var(--danger-rose);">Verification error: ${e}</div>`;
+    container.innerHTML = `<li class="diag-item"><span class="diag-status-badge error">ERROR</span><div class="diag-content"><div class="diag-title">Verification Error</div><div class="diag-message">${e}</div></div></li>`;
   }
 });
 
@@ -366,7 +359,7 @@ document.getElementById("finish-btn")?.addEventListener("click", () => {
   showToast("Setup completed successfully!");
   setTimeout(() => {
     switchTab("manage");
-  }, 600);
+  }, 400);
 });
 
 // Updates Tab
@@ -402,10 +395,10 @@ document.getElementById("check-updates-btn")?.addEventListener("click", runUpdat
 
 // Diagnostics Tab
 function renderDiagnosticItems(container: HTMLElement, result: DiagnosticResult) {
-  let html = `<ul class="diag-list">`;
+  let html = "";
   for (const item of result.items) {
     const badgeClass = item.status === "ok" ? "ok" : item.status === "warn" ? "warn" : "error";
-    const badgeText = item.status === "ok" ? "PASSED" : item.status === "warn" ? "NOTICE" : "FAILED";
+    const badgeText = item.status === "ok" ? "READY" : item.status === "warn" ? "NOTICE" : "ATTENTION";
 
     html += `
       <li class="diag-item">
@@ -420,7 +413,6 @@ function renderDiagnosticItems(container: HTMLElement, result: DiagnosticResult)
       </li>
     `;
   }
-  html += `</ul>`;
   container.innerHTML = html;
 }
 
@@ -430,7 +422,7 @@ async function runDiagnostics() {
   const btn = document.getElementById("run-verify-btn") as HTMLButtonElement;
 
   btn.disabled = true;
-  btn.innerHTML = `<span class="spinner"></span> Running Diagnostics...`;
+  btn.innerHTML = `<span class="spinner"></span> Verifying...`;
   diagList.innerHTML = `<li style="padding: 16px; text-align: center; color: var(--text-secondary);"><span class="spinner" style="margin-right: 8px;"></span>Testing engine binaries, Windows registry keys, manifests and live IPC...</li>`;
   diagSummary.textContent = "Testing...";
   diagSummary.className = "diag-summary-pill";
@@ -439,10 +431,10 @@ async function runDiagnostics() {
     const result = await invoke<DiagnosticResult>("verify_installation");
     renderDiagnosticItems(diagList, result);
 
-    diagSummary.textContent = `${result.passed} of ${result.total} Passed`;
+    diagSummary.textContent = `${result.passed} of ${result.total} Ready`;
     diagSummary.className = `diag-summary-pill ${result.all_passed ? "passed" : "warning"}`;
 
-    showToast(`Verification complete: ${result.passed}/${result.total} checks passed!`);
+    showToast(`Diagnostics complete: ${result.passed}/${result.total} checks passed!`);
   } catch (e: any) {
     diagList.innerHTML = `
       <li class="diag-item">
@@ -462,6 +454,7 @@ async function runDiagnostics() {
 }
 
 document.getElementById("run-verify-btn")?.addEventListener("click", runDiagnostics);
+
 
 // Quick Access Folders
 document.getElementById("btn-open-appdata")?.addEventListener("click", async () => {

@@ -1,21 +1,21 @@
-/* SnapLoad Windows Setup & Maintenance - Professional Native Fluent Theme */
+/* SnapLoad Windows Setup & Maintenance - Professional Windows Fluent Theme */
 :root {
-  --bg-app: #0A0D14;
-  --bg-header: #0F1523;
-  --bg-card: #131A29;
-  --bg-card-hover: #182236;
-  --bg-input: #0D121D;
-  --bg-terminal: #080B11;
+  --bg-app: #18181B;
+  --bg-header: #202024;
+  --bg-card: #27272A;
+  --bg-card-hover: #323238;
+  --bg-input: #121214;
+  --bg-terminal: #0F0F12;
 
-  --border-subtle: #1F293D;
-  --border-card: #222E44;
-  --border-hover: #334155;
+  --border-subtle: #333338;
+  --border-card: #3F3F46;
+  --border-hover: #52525B;
   --border-accent: #2563EB;
 
   --text-title: #FFFFFF;
-  --text-main: #F1F5F9;
-  --text-secondary: #94A3B8;
-  --text-muted: #64748B;
+  --text-main: #F4F4F5;
+  --text-secondary: #A1A1AA;
+  --text-muted: #71717A;
 
   --accent-primary: #2563EB;
   --accent-primary-hover: #1D4ED8;
@@ -23,23 +23,24 @@
 
   --success-emerald: #10B981;
   --success-bg: rgba(16, 185, 129, 0.12);
-  --success-border: rgba(16, 185, 129, 0.28);
+  --success-border: rgba(16, 185, 129, 0.3);
 
   --warning-amber: #F59E0B;
   --warning-bg: rgba(245, 158, 11, 0.12);
-  --warning-border: rgba(245, 158, 11, 0.28);
+  --warning-border: rgba(245, 158, 11, 0.3);
 
   --danger-rose: #EF4444;
   --danger-bg: rgba(239, 68, 68, 0.12);
-  --danger-border: rgba(239, 68, 68, 0.28);
+  --danger-border: rgba(239, 68, 68, 0.3);
 
   --radius-sm: 6px;
   --radius-md: 8px;
   --radius-lg: 12px;
 
-  --shadow-card: 0 2px 8px rgba(0, 0, 0, 0.35);
-  --shadow-btn: 0 1px 3px rgba(0, 0, 0, 0.2);
+  --shadow-card: 0 1px 4px rgba(0, 0, 0, 0.25);
+  --shadow-btn: 0 1px 2px rgba(0, 0, 0, 0.15);
 }
+
 
 * {
   box-sizing: border-box;
@@ -614,6 +615,39 @@ h2 {
 .guide-box-header span {
   font-size: 11px;
   color: var(--text-muted);
+}
+
+.guide-steps-list {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  background: var(--bg-input);
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-subtle);
+}
+
+.step-line {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 12px;
+  color: var(--text-main);
+}
+
+.step-num {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: rgba(37, 99, 235, 0.2);
+  color: #60A5FA;
+  border: 1px solid rgba(37, 99, 235, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10.5px;
+  font-weight: 700;
+  flex-shrink: 0;
 }
 
 .guide-actions-stack {
