@@ -108,105 +108,118 @@
           <div class="log-console" id="install-logs"></div>
         </div>
 
-        <!-- Step 3: Success & Browser Activation -->
+        <!-- Step 3: Success & 1-Click Auto Install -->
         <div id="step-complete" class="wizard-step hidden">
           <div class="success-banner">
             <div class="success-icon-badge">✓</div>
             <div>
-              <h3>SnapLoad Installed Successfully</h3>
-              <p>The native engine, host registrations, and extension files are ready. Follow the simple steps below to enable the extension in your browser:</p>
+              <h3>Instalacja plików zakończona pomyślnie</h3>
+              <p>SnapLoad Desktop Engine oraz pliki rozszerzenia są gotowe. Wybierz przeglądarkę i kliknij poniższy przycisk, aby automatycznie zainstalować rozszerzenie.</p>
             </div>
           </div>
 
-          <div class="extension-cards-grid">
-            <!-- Chromium Card -->
-            <div class="guide-box">
-              <div class="guide-box-header">
-                <div>
-                  <h4 id="chromium-card-title">Opera / Opera GX / Chrome / Edge / Brave</h4>
-                  <span>Chromium Extension Activation</span>
-                </div>
-                <span class="pill-badge core">Ready</span>
-              </div>
-
-              <div class="guide-steps-list">
-                <div class="step-line">
-                  <span class="step-num">1</span>
-                  <span>Extension is placed in <strong>%LOCALAPPDATA%\SnapLoad\extensions\chromium</strong> and browser profiles</span>
-                </div>
-                <div class="step-line">
-                  <span class="step-num">2</span>
-                  <span>Turn on <strong>Developer mode</strong> in <strong>opera://extensions</strong> or <strong>chrome://extensions</strong></span>
-                </div>
-                <div class="step-line">
-                  <span class="step-num">3</span>
-                  <span>Or click <strong>Launch Browser with SnapLoad</strong> below for instant loading on YouTube</span>
-                </div>
-              </div>
-
-              <div class="guide-actions-stack">
-                <button id="btn-launch-chromium" class="btn primary">
-                  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
-                  <span id="launch-chromium-text">Launch Browser with SnapLoad</span>
-                </button>
-                <button id="btn-open-chromium-folder" class="btn secondary">
-                  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
-                  Open Extension Folder
-                </button>
-                <button id="btn-copy-chromium-path" class="btn secondary">
-                  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
-                  Copy Folder Path
-                </button>
-              </div>
+          <!-- Browser Selection Tabs in Step 3 -->
+          <div class="step3-browser-section">
+            <div class="step3-section-title-row">
+              <span class="step3-section-label">Wybierz przeglądarkę do instalacji rozszerzenia:</span>
+              <span id="step3-detected-count" class="pill-badge core">Wykryto</span>
             </div>
-
-            <!-- Firefox Card -->
-            <div class="guide-box">
-              <div class="guide-box-header">
-                <div>
-                  <h4>Mozilla Firefox</h4>
-                  <span>Firefox Add-on Activation</span>
-                </div>
-                <span class="pill-badge">Ready</span>
-              </div>
-
-              <p class="description" style="font-size: 12px; line-height: 1.5;">
-                Click below to open the packaged extension in Firefox. When prompted by the browser, click <strong>Add</strong> to complete setup.
-              </p>
-
-              <div class="guide-actions-stack">
-                <button id="btn-launch-firefox" class="btn primary">
-                  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
-                  Install Extension in Firefox (1-Click)
-                </button>
-                <button id="btn-open-firefox-addons" class="btn secondary">
-                  Open about:addons
-                </button>
-                <button id="btn-open-firefox-folder" class="btn secondary">
-                  Open XPI Folder
-                </button>
-              </div>
+            <div id="step3-browser-picker" class="step3-browser-picker">
+              <!-- Rendered dynamically by main.ts -->
             </div>
           </div>
 
-          <!-- Step 3 Verification Test -->
-          <div class="diag-card" style="padding: 16px 20px;">
-            <div class="diag-header">
-              <div>
-                <strong style="font-size: 13.5px; color: var(--text-title);">Installation Verification</strong>
-                <p style="font-size: 12px; color: var(--text-secondary); margin-top: 2px;">
-                  Test engine readiness, registry keys, manifests, and live IPC roundtrip:
-                </p>
+          <!-- Unified 1-Click Auto-Install Card -->
+          <div class="step3-action-card">
+            <div class="step3-card-header">
+              <div class="step3-browser-hero">
+                <div id="step3-hero-icon" class="step3-hero-icon"></div>
+                <div>
+                  <h3 id="step3-browser-name">Opera GX</h3>
+                  <span id="step3-browser-status" class="step3-browser-subtitle">Wykryto na komputerze • Gotowy do instalacji</span>
+                </div>
               </div>
-              <button id="btn-step3-verify" class="btn primary">
-                Verify Installation Now
-              </button>
+              <span id="step3-ready-badge" class="pill-badge core">Gotowy</span>
             </div>
-            <ul id="step3-verify-results" class="diag-list" style="display: none; margin-top: 14px;"></ul>
+
+            <!-- Path Verification Details -->
+            <div class="path-details-box">
+              <div class="path-row">
+                <span class="path-row-label">Plik .exe:</span>
+                <span id="step3-exe-path" class="path-row-value">Sprawdzanie ścieżki...</span>
+                <span id="step3-exe-badge" class="path-status-badge ok">Wykryto</span>
+              </div>
+              <div class="path-row">
+                <span class="path-row-label">Profil:</span>
+                <span id="step3-profile-path" class="path-row-value">Sprawdzanie profilu...</span>
+                <span id="step3-profile-badge" class="path-status-badge ok">Profil aktywny</span>
+              </div>
+              <div id="step3-running-row" class="path-row" style="display: none;">
+                <span class="path-row-label">Status procesu:</span>
+                <span id="step3-running-status" class="path-row-value">Przeglądarka jest otwarta</span>
+                <span id="step3-running-badge" class="path-status-badge warn">Uruchomiona</span>
+              </div>
+            </div>
+
+            <!-- Restart checkbox if browser is running -->
+            <div id="step3-restart-toggle-row" class="restart-toggle-row" style="display: none;">
+              <label class="restart-checkbox-label">
+                <input type="checkbox" id="cb-restart-browser" checked />
+                <span>Automatycznie zrestartuj przeglądarkę, aby załadować rozszerzenie do sesji</span>
+              </label>
+            </div>
+
+            <!-- THE ONE AUTO-INSTALL BUTTON -->
+            <button id="btn-auto-install" class="btn-auto-install">
+              <div class="btn-auto-install-icon">
+                <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+                  <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+                </svg>
+              </div>
+              <div class="btn-auto-install-content">
+                <span id="auto-install-main-title" class="btn-title">Zainstaluj automatycznie w Opera</span>
+                <span id="auto-install-sub-title" class="btn-subtitle">1 kliknięcie: konfiguruje pliki, rejestr i uruchamia przeglądarkę</span>
+              </div>
+            </button>
+
+            <!-- Status Alert Box (hidden initially) -->
+            <div id="auto-install-status-box" class="auto-install-status-box hidden">
+              <div class="status-box-header">
+                <span id="status-box-icon" class="status-box-icon">✓</span>
+                <span id="status-box-title" class="status-box-title">Rozszerzenie zainstalowane pomyślnie!</span>
+              </div>
+              <p id="status-box-desc" class="status-box-desc">Przeglądarka została uruchomiona z załadowanym rozszerzeniem SnapLoad.</p>
+            </div>
+
+            <!-- Advanced Collapsible Options (Non-intrusive) -->
+            <details class="step3-advanced-details">
+              <summary>Zaawansowane opcje i weryfikacja diagnostyczna</summary>
+              <div class="advanced-details-content">
+                <div class="advanced-buttons-row">
+                  <button id="btn-open-active-ext-folder" class="btn secondary">
+                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+                    Otwórz folder rozszerzenia
+                  </button>
+                  <button id="btn-copy-ext-path" class="btn secondary">
+                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                    Kopiuj ścieżkę do schowka
+                  </button>
+                  <button id="btn-open-browser-ext-page" class="btn secondary">
+                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
+                    Strona rozszerzeń
+                  </button>
+                  <button id="btn-step3-verify" class="btn secondary">
+                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg>
+                    Sprawdź diagnostykę instalacji
+                  </button>
+                </div>
+                <ul id="step3-verify-results" class="diag-list" style="display: none; margin-top: 10px;"></ul>
+              </div>
+            </details>
           </div>
 
           <div class="action-footer">
-            <button id="finish-btn" class="btn secondary">Done & Open Diagnostics</button>
+            <button id="finish-btn" class="btn secondary">Zakończ i otwórz Diagnostykę</button>
           </div>
         </div>
       </section>
