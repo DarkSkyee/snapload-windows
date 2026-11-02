@@ -28,3 +28,6 @@ lto = false
 codegen-units = 1
 panic = "abort"
 strip = true
+
+[patch.crates-io]
+webview2-com-sys = { path = "../crates/webview2-com-sys" }

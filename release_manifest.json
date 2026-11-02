@@ -15,7 +15,7 @@
                                  },
                       "setup":  {
                                     "url":  "https://github.com/DarkSkyee/snapload-windows/releases/download/v1.0.0/snapload-setup.exe",
-                                    "sha256":  "7eff824a4e97f688704fd5ee2d414e6834c7b96279740e51bfc2fff499ecca70",
+                                    "sha256":  "0f8597ed5af00cf6274dccc3f5f051e6d5762f816ae3206697f9e70c9f34f5b7",
                                     "file":  "snapload-setup.exe"
                                 },
                       "extension_chromium":  {
