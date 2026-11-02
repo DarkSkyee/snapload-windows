@@ -119,6 +119,83 @@ impl SetupManager {
         }
     }
 
+    pub fn deploy_to_browser_profiles(chrome_unpacked_dir: &Path) -> Vec<String> {
+        let mut deployed = Vec::new();
+        let ext_id = "ikkidkbojpedpeaomipgioiigmjlpflg";
+        let version_tag = "1.0.0_0";
+
+        let mut targets: Vec<(&str, PathBuf)> = Vec::new();
+
+        // 1. Opera Stable & Opera GX
+        if let Some(appdata) = std::env::var_os("APPDATA") {
+            let opera_dir = PathBuf::from(&appdata)
+                .join("Opera Software")
+                .join("Opera Stable")
+                .join("Default")
+                .join("Extensions")
+                .join(ext_id)
+                .join(version_tag);
+            targets.push(("Opera Stable", opera_dir));
+
+            let operagx_dir = PathBuf::from(&appdata)
+                .join("Opera Software")
+                .join("Opera GX Stable")
+                .join("Default")
+                .join("Extensions")
+                .join(ext_id)
+                .join(version_tag);
+            targets.push(("Opera GX", operagx_dir));
+        }
+
+        // 2. Google Chrome, Microsoft Edge, Brave Browser
+        if let Some(local) = std::env::var_os("LOCALAPPDATA") {
+            let chrome_dir = PathBuf::from(&local)
+                .join("Google")
+                .join("Chrome")
+                .join("User Data")
+                .join("Default")
+                .join("Extensions")
+                .join(ext_id)
+                .join(version_tag);
+            targets.push(("Google Chrome", chrome_dir));
+
+            let edge_dir = PathBuf::from(&local)
+                .join("Microsoft")
+                .join("Edge")
+                .join("User Data")
+                .join("Default")
+                .join("Extensions")
+                .join(ext_id)
+                .join(version_tag);
+            targets.push(("Microsoft Edge", edge_dir));
+
+            let brave_dir = PathBuf::from(&local)
+                .join("BraveSoftware")
+                .join("Brave-Browser")
+                .join("User Data")
+                .join("Default")
+                .join("Extensions")
+                .join(ext_id)
+                .join(version_tag);
+            targets.push(("Brave Browser", brave_dir));
+        }
+
+        for (name, target_dir) in targets {
+            if let Some(ext_parent) = target_dir.parent() {
+                if let Some(default_profile) = ext_parent.parent() {
+                    if default_profile.exists() {
+                        let _ = create_dir_all(&target_dir);
+                        if let Ok(_) = copy_dir_recursive(chrome_unpacked_dir, &target_dir) {
+                            deployed.push(format!("Deployed extension files to {} profile: {:?}", name, target_dir));
+                        }
+                    }
+                }
+            }
+        }
+
+        deployed
+    }
+
     pub async fn run_install(options: InstallOptions) -> Result<InstallResult, String> {
         let mut logs = Vec::new();
         logs.push("Initializing SnapLoad desktop environment...".to_string());
@@ -214,6 +291,12 @@ impl SetupManager {
                     break;
                 }
             }
+        }
+
+        // 2b. Automatically deploy extension directly to browser profile directories
+        let profile_deploy_logs = Self::deploy_to_browser_profiles(&chrome_unpacked_dir);
+        for l in profile_deploy_logs {
+            logs.push(l);
         }
 
         // 3. Deploy Firefox extension (XPI package + unpacked)
@@ -396,7 +479,7 @@ impl SetupManager {
             items.push(DiagnosticItem {
                 name: "Chromium Native Manifest".to_string(),
                 status: "ok".to_string(),
-                message: "Registered (Chrome, Edge, Brave, Opera)".to_string(),
+                message: "Registered (Chrome, Edge, Brave, Opera, Opera GX)".to_string(),
                 detail: chrome_manifest.to_string_lossy().to_string(),
             });
         } else {
@@ -427,7 +510,7 @@ impl SetupManager {
         }
 
         // 4. Windows Registry Registrations
-        let browsers = ["chrome", "edge", "brave", "opera", "firefox"];
+        let browsers = ["chrome", "edge", "brave", "opera", "operagx", "firefox"];
         let mut registered = Vec::new();
         for b in browsers {
             let (is_reg, _) = RegistryManager::check_native_host_registration(b);
@@ -457,7 +540,7 @@ impl SetupManager {
             items.push(DiagnosticItem {
                 name: "Chromium Extension Deployment".to_string(),
                 status: "ok".to_string(),
-                message: "Unpacked extension folder ready to load".to_string(),
+                message: "Unpacked extension folder ready to load (manifest verified)".to_string(),
                 detail: chrom_ext_dir.to_string_lossy().to_string(),
             });
         } else {
@@ -705,11 +788,16 @@ pub fn unpack_zip_bytes(bytes: &[u8], dest_dir: &Path) -> Result<(), String> {
     let mut archive = zip::ZipArchive::new(cursor).map_err(|e| format!("Failed to read zip archive: {}", e))?;
     for i in 0..archive.len() {
         let mut file = archive.by_index(i).map_err(|e| format!("Zip entry error: {}", e))?;
-        let outpath = match file.enclosed_name() {
-            Some(path) => dest_dir.join(path),
-            None => continue,
-        };
-        if file.name().ends_with('/') {
+        let raw_name = file.name().to_string();
+        let normalized = raw_name.replace('\\', "/");
+        let trimmed = normalized.trim_start_matches("./").trim_start_matches('/');
+        if trimmed.is_empty() {
+            continue;
+        }
+
+        let outpath = dest_dir.join(Path::new(trimmed));
+        let is_dir = file.is_dir() || raw_name.ends_with('/') || raw_name.ends_with('\\') || normalized.ends_with('/');
+        if is_dir {
             create_dir_all(&outpath).map_err(|e| format!("Failed to create subfolder {:?}: {}", outpath, e))?;
         } else {
             if let Some(p) = outpath.parent() {

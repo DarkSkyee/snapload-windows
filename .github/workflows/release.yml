@@ -37,8 +37,8 @@ jobs:
           cd extension
           npm ci || npm install
           npm run build
-          Compress-Archive -Path dist/chrome/* -DestinationPath dist/snapload-extension-chromium.zip -Force
-          Compress-Archive -Path dist/firefox/* -DestinationPath dist/snapload-extension-firefox.zip -Force
+          tar.exe -a -cf dist/snapload-extension-chromium.zip -C dist/chrome .
+          tar.exe -a -cf dist/snapload-extension-firefox.zip -C dist/firefox .
 
       - name: Build Installer (Tauri & Rust)
         run: |

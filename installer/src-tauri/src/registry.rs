@@ -10,7 +10,9 @@ pub struct RegistryManager;
 
 impl RegistryManager {
     pub fn get_manifest_dir() -> PathBuf {
-        let local_app_data = std::env::var_os("LOCALAPPDATA").expect("LOCALAPPDATA not found");
+        let local_app_data = std::env::var_os("LOCALAPPDATA")
+            .or_else(|| std::env::var_os("APPDATA"))
+            .unwrap_or_else(|| std::ffi::OsString::from("."));
         let mut path = PathBuf::from(local_app_data);
         path.push("SnapLoad");
         path.push("manifests");
@@ -22,7 +24,7 @@ impl RegistryManager {
         let dir = Self::get_manifest_dir();
         let engine_path_escaped = engine_exe_path.to_string_lossy().to_string();
 
-        // 1. Chromium Manifest (Chrome, Edge, Brave, Opera)
+        // 1. Chromium Manifest (Chrome, Edge, Brave, Opera, Opera GX)
         let chrome_manifest = serde_json::json!({
             "name": HOST_NAME,
             "description": "SnapLoad Desktop Downloader Native Messaging Host",
@@ -57,32 +59,35 @@ impl RegistryManager {
     }
 
     pub fn register_browser(browser_id: &str, manifest_path: &Path) -> Result<(), String> {
-        let subkey = match browser_id {
-            "chrome" => format!(r"Software\Google\Chrome\NativeMessagingHosts\{}", HOST_NAME),
-            "edge" => format!(
-                r"Software\Microsoft\Edge\NativeMessagingHosts\{}",
-                HOST_NAME
-            ),
-            "brave" => format!(
-                r"Software\BraveSoftware\Brave-Browser\NativeMessagingHosts\{}",
-                HOST_NAME
-            ),
-            "opera" => format!(
-                r"Software\Opera Software\Opera Stable\NativeMessagingHosts\{}",
-                HOST_NAME
-            ),
-            "firefox" => format!(r"Software\Mozilla\NativeMessagingHosts\{}", HOST_NAME),
+        let subkeys = match browser_id {
+            "chrome" => vec![format!(r"Software\Google\Chrome\NativeMessagingHosts\{}", HOST_NAME)],
+            "edge" => vec![format!(r"Software\Microsoft\Edge\NativeMessagingHosts\{}", HOST_NAME)],
+            "brave" => vec![format!(r"Software\BraveSoftware\Brave-Browser\NativeMessagingHosts\{}", HOST_NAME)],
+            "opera" => vec![
+                format!(r"Software\Opera Software\Opera Stable\NativeMessagingHosts\{}", HOST_NAME),
+                format!(r"Software\Opera Software\NativeMessagingHosts\{}", HOST_NAME),
+            ],
+            "operagx" => vec![
+                format!(r"Software\Opera Software\Opera GX Stable\NativeMessagingHosts\{}", HOST_NAME),
+            ],
+            "firefox" => vec![format!(r"Software\Mozilla\NativeMessagingHosts\{}", HOST_NAME)],
             _ => return Err(format!("Unsupported browser id: {}", browser_id)),
         };
 
-        let hkcu = RegKey::predef(HKEY_CURRENT_USER);
-        let (key, _) = hkcu
-            .create_subkey(&subkey)
-            .map_err(|e| format!("Failed to create registry subkey {}: {}", subkey, e))?;
-
         let manifest_str = manifest_path.to_string_lossy().to_string();
-        key.set_value("", &manifest_str)
-            .map_err(|e| format!("Failed to set default registry value for {}: {}", subkey, e))?;
+        let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+        let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
+
+        for subkey in subkeys {
+            // Register in HKCU (user level)
+            if let Ok((key, _)) = hkcu.create_subkey(&subkey) {
+                let _ = key.set_value("", &manifest_str);
+            }
+            // Also attempt HKLM (machine level if elevated)
+            if let Ok((key, _)) = hklm.create_subkey(&subkey) {
+                let _ = key.set_value("", &manifest_str);
+            }
+        }
 
         Ok(())
     }
@@ -101,37 +106,69 @@ impl RegistryManager {
 
     pub fn register_chromium_extension(browser_id: &str, ext_path: &Path) -> Result<(), String> {
         let ext_id = "ikkidkbojpedpeaomipgioiigmjlpflg";
-        let subkey = match browser_id {
-            "chrome" => format!(r"Software\Google\Chrome\Extensions\{}", ext_id),
-            "edge" => format!(r"Software\Microsoft\Edge\Extensions\{}", ext_id),
-            "brave" => format!(r"Software\BraveSoftware\Brave-Browser\Extensions\{}", ext_id),
+        let subkeys = match browser_id {
+            "chrome" => vec![format!(r"Software\Google\Chrome\Extensions\{}", ext_id)],
+            "edge" => vec![format!(r"Software\Microsoft\Edge\Extensions\{}", ext_id)],
+            "brave" => vec![format!(r"Software\BraveSoftware\Brave-Browser\Extensions\{}", ext_id)],
+            "opera" => vec![
+                format!(r"Software\Opera Software\Opera Stable\Extensions\{}", ext_id),
+                format!(r"Software\Opera Software\Extensions\{}", ext_id),
+            ],
+            "operagx" => vec![
+                format!(r"Software\Opera Software\Opera GX Stable\Extensions\{}", ext_id),
+            ],
             _ => return Ok(()),
         };
-        let hkcu = RegKey::predef(HKEY_CURRENT_USER);
-        let (key, _) = hkcu
-            .create_subkey(&subkey)
-            .map_err(|e| format!("Failed to create registry subkey {}: {}", subkey, e))?;
+
         let path_str = ext_path.to_string_lossy().to_string();
-        let _ = key.set_value("path", &path_str);
-        let _ = key.set_value("version", &"1.0.0");
+        let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+        let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
+
+        for subkey in subkeys {
+            if let Ok((key, _)) = hkcu.create_subkey(&subkey) {
+                let _ = key.set_value("path", &path_str);
+                let _ = key.set_value("version", &"1.0.0");
+            }
+            if let Ok((key, _)) = hklm.create_subkey(&subkey) {
+                let _ = key.set_value("path", &path_str);
+                let _ = key.set_value("version", &"1.0.0");
+            }
+        }
         Ok(())
     }
 
     pub fn check_native_host_registration(browser_id: &str) -> (bool, Option<String>) {
-        let subkey = match browser_id {
-            "chrome" => format!(r"Software\Google\Chrome\NativeMessagingHosts\{}", HOST_NAME),
-            "edge" => format!(r"Software\Microsoft\Edge\NativeMessagingHosts\{}", HOST_NAME),
-            "brave" => format!(r"Software\BraveSoftware\Brave-Browser\NativeMessagingHosts\{}", HOST_NAME),
-            "opera" => format!(r"Software\Opera Software\Opera Stable\NativeMessagingHosts\{}", HOST_NAME),
-            "firefox" => format!(r"Software\Mozilla\NativeMessagingHosts\{}", HOST_NAME),
+        let subkeys = match browser_id {
+            "chrome" => vec![format!(r"Software\Google\Chrome\NativeMessagingHosts\{}", HOST_NAME)],
+            "edge" => vec![format!(r"Software\Microsoft\Edge\NativeMessagingHosts\{}", HOST_NAME)],
+            "brave" => vec![format!(r"Software\BraveSoftware\Brave-Browser\NativeMessagingHosts\{}", HOST_NAME)],
+            "opera" => vec![
+                format!(r"Software\Opera Software\Opera Stable\NativeMessagingHosts\{}", HOST_NAME),
+                format!(r"Software\Opera Software\NativeMessagingHosts\{}", HOST_NAME),
+            ],
+            "operagx" => vec![
+                format!(r"Software\Opera Software\Opera GX Stable\NativeMessagingHosts\{}", HOST_NAME),
+            ],
+            "firefox" => vec![format!(r"Software\Mozilla\NativeMessagingHosts\{}", HOST_NAME)],
             _ => return (false, None),
         };
+
         let hkcu = RegKey::predef(HKEY_CURRENT_USER);
-        if let Ok(key) = hkcu.open_subkey(&subkey) {
-            if let Ok(val) = key.get_value::<String, _>("") {
-                return (true, Some(val));
+        let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
+
+        for subkey in subkeys {
+            if let Ok(key) = hkcu.open_subkey(&subkey) {
+                if let Ok(val) = key.get_value::<String, _>("") {
+                    return (true, Some(val));
+                }
+                return (true, None);
             }
-            return (true, None);
+            if let Ok(key) = hklm.open_subkey(&subkey) {
+                if let Ok(val) = key.get_value::<String, _>("") {
+                    return (true, Some(val));
+                }
+                return (true, None);
+            }
         }
         (false, None)
     }
@@ -152,10 +189,15 @@ impl RegistryManager {
             format!(r"Software\Microsoft\Edge\NativeMessagingHosts\{}", HOST_NAME),
             format!(r"Software\BraveSoftware\Brave-Browser\NativeMessagingHosts\{}", HOST_NAME),
             format!(r"Software\Opera Software\Opera Stable\NativeMessagingHosts\{}", HOST_NAME),
+            format!(r"Software\Opera Software\NativeMessagingHosts\{}", HOST_NAME),
+            format!(r"Software\Opera Software\Opera GX Stable\NativeMessagingHosts\{}", HOST_NAME),
             format!(r"Software\Mozilla\NativeMessagingHosts\{}", HOST_NAME),
             format!(r"Software\Google\Chrome\Extensions\ikkidkbojpedpeaomipgioiigmjlpflg"),
             format!(r"Software\Microsoft\Edge\Extensions\ikkidkbojpedpeaomipgioiigmjlpflg"),
             format!(r"Software\BraveSoftware\Brave-Browser\Extensions\ikkidkbojpedpeaomipgioiigmjlpflg"),
+            format!(r"Software\Opera Software\Opera Stable\Extensions\ikkidkbojpedpeaomipgioiigmjlpflg"),
+            format!(r"Software\Opera Software\Extensions\ikkidkbojpedpeaomipgioiigmjlpflg"),
+            format!(r"Software\Opera Software\Opera GX Stable\Extensions\ikkidkbojpedpeaomipgioiigmjlpflg"),
         ];
 
         let hkcu = RegKey::predef(HKEY_CURRENT_USER);

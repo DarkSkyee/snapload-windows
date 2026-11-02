@@ -114,7 +114,7 @@
             <div class="success-icon-badge">✓</div>
             <div>
               <h3>SnapLoad Installed Successfully</h3>
-              <p>The native engine and host registrations are ready. Follow the simple steps below to enable the extension in your browser:</p>
+              <p>The native engine, host registrations, and extension files are ready. Follow the simple steps below to enable the extension in your browser:</p>
             </div>
           </div>
 
@@ -123,7 +123,7 @@
             <div class="guide-box">
               <div class="guide-box-header">
                 <div>
-                  <h4>Google Chrome / Edge / Brave / Opera</h4>
+                  <h4 id="chromium-card-title">Opera / Opera GX / Chrome / Edge / Brave</h4>
                   <span>Chromium Extension Activation</span>
                 </div>
                 <span class="pill-badge core">Ready</span>
@@ -132,30 +132,30 @@
               <div class="guide-steps-list">
                 <div class="step-line">
                   <span class="step-num">1</span>
-                  <span>Open <strong>chrome://extensions</strong> (or <strong>edge://extensions</strong>)</span>
+                  <span>Extension is placed in <strong>%LOCALAPPDATA%\SnapLoad\extensions\chromium</strong> and browser profiles</span>
                 </div>
                 <div class="step-line">
                   <span class="step-num">2</span>
-                  <span>Turn on <strong>Developer mode</strong> (toggle in top-right corner)</span>
+                  <span>Turn on <strong>Developer mode</strong> in <strong>opera://extensions</strong> or <strong>chrome://extensions</strong></span>
                 </div>
                 <div class="step-line">
                   <span class="step-num">3</span>
-                  <span>Click <strong>Load unpacked</strong> and select the extension folder</span>
+                  <span>Or click <strong>Launch Browser with SnapLoad</strong> below for instant loading on YouTube</span>
                 </div>
               </div>
 
               <div class="guide-actions-stack">
-                <button id="btn-open-chromium-folder" class="btn primary">
+                <button id="btn-launch-chromium" class="btn primary">
+                  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+                  <span id="launch-chromium-text">Launch Browser with SnapLoad</span>
+                </button>
+                <button id="btn-open-chromium-folder" class="btn secondary">
                   <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
                   Open Extension Folder
                 </button>
                 <button id="btn-copy-chromium-path" class="btn secondary">
                   <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
-                  Copy Folder Path to Clipboard
-                </button>
-                <button id="btn-launch-chromium" class="btn secondary">
-                  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
-                  Launch Browser with SnapLoad
+                  Copy Folder Path
                 </button>
               </div>
             </div>

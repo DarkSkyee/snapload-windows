@@ -63,6 +63,11 @@ const BROWSER_SVGS: Record<string, string> = {
     <svg viewBox="0 0 48 48" width="34" height="34">
       <path fill="#FF1B2D" d="M24,4C13,4,4,13,4,24s9,20,20,20s20-9,20-20S35,4,24,4z M24,38c-6.6,0-12-6.3-12-14s5.4-14,12-14s12,6.3,12,14S30.6,38,24,38z"/>
     </svg>`,
+  operagx: `
+    <svg viewBox="0 0 48 48" width="34" height="34">
+      <path fill="#FA1E4E" d="M24,4C13,4,4,13,4,24s9,20,20,20s20-9,20-20S35,4,24,4z M24,36c-5.5,0-10-5.4-10-12s4.5-12,10-12s10,5.4,10,12S29.5,36,24,36z"/>
+      <polygon fill="#FFFFFF" points="21,16 29,24 21,32"/>
+    </svg>`,
   firefox: `
     <svg viewBox="0 0 48 48" width="34" height="34">
       <circle fill="#FF9100" cx="24" cy="24" r="20"/>
@@ -77,6 +82,7 @@ let detectedBrowsers: BrowserInfo[] = [
   { id: "edge", name: "Microsoft Edge", icon: "edge", detected: false, selected: false },
   { id: "brave", name: "Brave Browser", icon: "brave", detected: false, selected: false },
   { id: "opera", name: "Opera", icon: "opera", detected: false, selected: false },
+  { id: "operagx", name: "Opera GX", icon: "operagx", detected: false, selected: false },
   { id: "firefox", name: "Mozilla Firefox", icon: "firefox", detected: false, selected: false },
 ];
 
@@ -206,6 +212,7 @@ function renderBrowserList() {
     card.addEventListener("click", () => {
       b.selected = !b.selected;
       card.classList.toggle("selected", b.selected);
+      updateStep3TargetBrowser();
     });
 
     browserListEl.appendChild(card);
@@ -244,22 +251,22 @@ startInstallBtn.addEventListener("click", async () => {
   updateProgress(10, "Initializing application directories in %LOCALAPPDATA%\\SnapLoad...");
 
   try {
-    updateProgress(30, "Deploying SnapLoad Engine and extracting browser extension files...");
+    updateProgress(30, "Deploying SnapLoad Engine and browser extensions...");
     const res = await invoke<{ success: boolean; logs: string[] }>("install_snapload", { options });
     if (res && res.logs) {
       res.logs.forEach(l => {
-        const isSuccess = l.toLowerCase().includes("success") || l.toLowerCase().includes("verified") || l.toLowerCase().includes("registered");
+        const isSuccess = l.toLowerCase().includes("success") || l.toLowerCase().includes("verified") || l.toLowerCase().includes("registered") || l.toLowerCase().includes("deployed");
         const isWarn = l.toLowerCase().includes("warn") || l.toLowerCase().includes("notice");
         log(l, isSuccess ? "success" : isWarn ? "warn" : "info");
       });
     }
 
-    updateProgress(100, "Installation and Native Messaging registration completed!", "success");
+    updateProgress(100, "Installation and extension deployment completed successfully!", "success");
 
     setTimeout(() => {
       stepProgress.classList.add("hidden");
       stepComplete.classList.remove("hidden");
-      // Cache paths
+      updateStep3TargetBrowser();
       fetchPaths();
     }, 1100);
   } catch (err: any) {
@@ -269,11 +276,30 @@ startInstallBtn.addEventListener("click", async () => {
 
 // Step 3 Interactive Actions
 function getTargetChromiumBrowser(): string {
+  // Prefer Opera / Opera GX if detected/selected
+  const operaSelected = detectedBrowsers.find(b => b.selected && (b.id === "opera" || b.id === "operagx"));
+  if (operaSelected) return operaSelected.id;
+
   const selected = detectedBrowsers.find(b => b.selected && b.id !== "firefox");
   if (selected) return selected.id;
+
+  const operaDetected = detectedBrowsers.find(b => b.detected && (b.id === "opera" || b.id === "operagx"));
+  if (operaDetected) return operaDetected.id;
+
   const detected = detectedBrowsers.find(b => b.detected && b.id !== "firefox");
   if (detected) return detected.id;
-  return "chrome";
+
+  return "opera";
+}
+
+function updateStep3TargetBrowser() {
+  const browserId = getTargetChromiumBrowser();
+  const browser = detectedBrowsers.find(b => b.id === browserId);
+  const name = browser ? browser.name : "Browser";
+  const btnText = document.getElementById("launch-chromium-text");
+  if (btnText) {
+    btnText.textContent = `Launch ${name} with SnapLoad`;
+  }
 }
 
 document.getElementById("btn-launch-chromium")?.addEventListener("click", async () => {
@@ -454,7 +480,6 @@ async function runDiagnostics() {
 }
 
 document.getElementById("run-verify-btn")?.addEventListener("click", runDiagnostics);
-
 
 // Quick Access Folders
 document.getElementById("btn-open-appdata")?.addEventListener("click", async () => {

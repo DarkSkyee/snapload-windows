@@ -26,8 +26,13 @@ $firefoxZip = "$dist\snapload-extension-firefox.zip"
 if (Test-Path $chromeZip) { Remove-Item $chromeZip -Force }
 if (Test-Path $firefoxZip) { Remove-Item $firefoxZip -Force }
 
-Compress-Archive -Path "$chromeDir\*" -DestinationPath $chromeZip -CompressionLevel Optimal -Force
-Compress-Archive -Path "$firefoxDir\*" -DestinationPath $firefoxZip -CompressionLevel Optimal -Force
+if (Get-Command "tar.exe" -ErrorAction SilentlyContinue) {
+    tar.exe -a -cf "$chromeZip" -C "$chromeDir" .
+    tar.exe -a -cf "$firefoxZip" -C "$firefoxDir" .
+} else {
+    Compress-Archive -Path "$chromeDir\*" -DestinationPath $chromeZip -CompressionLevel Optimal -Force
+    Compress-Archive -Path "$firefoxDir\*" -DestinationPath $firefoxZip -CompressionLevel Optimal -Force
+}
 
 Write-Host "Packaged Chromium extension: $chromeZip" -ForegroundColor Green
 Write-Host "Packaged Firefox extension: $firefoxZip" -ForegroundColor Green

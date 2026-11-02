@@ -1,7 +1,7 @@
-mod browser;
-mod registry;
-mod setup;
-mod updater;
+pub mod browser;
+pub mod registry;
+pub mod setup;
+pub mod updater;
 
 use browser::{BrowserDetector, BrowserInfo};
 use setup::{DiagnosticResult, ExtensionPaths, InstallOptions, InstallResult, SetupManager};
@@ -83,6 +83,7 @@ fn launch_browser_with_extension(browser_id: String) -> Result<String, String> {
         "edge" => BrowserDetector::find_edge(),
         "brave" => BrowserDetector::find_brave(),
         "opera" => BrowserDetector::find_opera(),
+        "operagx" => BrowserDetector::find_opera_gx(),
         "firefox" => BrowserDetector::find_firefox(),
         _ => None,
     };
@@ -90,10 +91,11 @@ fn launch_browser_with_extension(browser_id: String) -> Result<String, String> {
     if browser_id == "firefox" {
         let xpi_path = SetupManager::get_firefox_ext_dir().join("snapload-extension-firefox.xpi");
         if let Some(exe) = browser_exe {
+            let clean_exe = BrowserDetector::sanitize_exe_path(&exe);
             #[cfg(windows)]
             {
                 use std::os::windows::process::CommandExt;
-                let mut cmd = std::process::Command::new(&exe);
+                let mut cmd = std::process::Command::new(&clean_exe);
                 cmd.arg(xpi_path.to_string_lossy().to_string());
                 cmd.creation_flags(0x08000000);
                 cmd.spawn().map_err(|e| format!("Failed to launch Firefox: {}", e))?;
@@ -108,10 +110,11 @@ fn launch_browser_with_extension(browser_id: String) -> Result<String, String> {
     let ext_path_str = ext_path.to_string_lossy().to_string();
 
     if let Some(exe) = browser_exe {
+        let clean_exe = BrowserDetector::sanitize_exe_path(&exe);
         #[cfg(windows)]
         {
             use std::os::windows::process::CommandExt;
-            let mut cmd = std::process::Command::new(&exe);
+            let mut cmd = std::process::Command::new(&clean_exe);
             cmd.arg(format!("--load-extension={}", ext_path_str));
             cmd.arg("https://www.youtube.com");
             cmd.creation_flags(0x08000000);
@@ -127,14 +130,13 @@ fn launch_browser_with_extension(browser_id: String) -> Result<String, String> {
     }
 }
 
-
 #[tauri::command]
 fn open_browser_extensions_page(browser_id: String) -> Result<String, String> {
     let url = match browser_id.as_str() {
         "chrome" => "chrome://extensions",
         "edge" => "edge://extensions",
         "brave" => "brave://extensions",
-        "opera" => "opera://extensions",
+        "opera" | "operagx" => "opera://extensions",
         "firefox" => "about:addons",
         _ => "chrome://extensions",
     };
@@ -144,15 +146,17 @@ fn open_browser_extensions_page(browser_id: String) -> Result<String, String> {
         "edge" => BrowserDetector::find_edge(),
         "brave" => BrowserDetector::find_brave(),
         "opera" => BrowserDetector::find_opera(),
+        "operagx" => BrowserDetector::find_opera_gx(),
         "firefox" => BrowserDetector::find_firefox(),
         _ => None,
     };
 
     if let Some(exe) = browser_exe {
+        let clean_exe = BrowserDetector::sanitize_exe_path(&exe);
         #[cfg(windows)]
         {
             use std::os::windows::process::CommandExt;
-            let mut cmd = std::process::Command::new(&exe);
+            let mut cmd = std::process::Command::new(&clean_exe);
             cmd.arg(url);
             cmd.creation_flags(0x08000000);
             cmd.spawn().map_err(|e| format!("Failed to open extensions page: {}", e))?;
