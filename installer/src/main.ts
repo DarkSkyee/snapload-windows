@@ -7,7 +7,19 @@ interface BrowserInfo {
   icon: string;
   detected: boolean;
   path?: string;
+  profile_path?: string;
+  is_running?: boolean;
   selected: boolean;
+}
+
+interface AutoInstallResult {
+  success: boolean;
+  browser_id: string;
+  browser_name: string;
+  exe_path: string;
+  profile_path?: string;
+  message: string;
+  logs: string[];
 }
 
 interface InstallOptions {
@@ -212,7 +224,9 @@ function renderBrowserList() {
     card.addEventListener("click", () => {
       b.selected = !b.selected;
       card.classList.toggle("selected", b.selected);
-      updateStep3TargetBrowser();
+      if (b.selected) {
+        step3ActiveBrowserId = b.id;
+      }
     });
 
     browserListEl.appendChild(card);
@@ -266,7 +280,7 @@ startInstallBtn.addEventListener("click", async () => {
     setTimeout(() => {
       stepProgress.classList.add("hidden");
       stepComplete.classList.remove("hidden");
-      updateStep3TargetBrowser();
+      initStep3UI();
       fetchPaths();
     }, 1100);
   } catch (err: any) {
@@ -274,110 +288,322 @@ startInstallBtn.addEventListener("click", async () => {
   }
 });
 
-// Step 3 Interactive Actions
-function getTargetChromiumBrowser(): string {
-  // Prefer Opera / Opera GX if detected/selected
-  const operaSelected = detectedBrowsers.find(b => b.selected && (b.id === "opera" || b.id === "operagx"));
-  if (operaSelected) return operaSelected.id;
+// Step 3: Streamlined 1-Click Auto Install
+let step3ActiveBrowserId: string = "operagx";
 
-  const selected = detectedBrowsers.find(b => b.selected && b.id !== "firefox");
-  if (selected) return selected.id;
+function getInitialStep3Browser(): string {
+  // 1. If user previously selected a browser in Step 1, prefer that
+  if (step3ActiveBrowserId) {
+    const prev = detectedBrowsers.find(b => b.id === step3ActiveBrowserId && b.detected);
+    if (prev) return prev.id;
+  }
 
-  const operaDetected = detectedBrowsers.find(b => b.detected && (b.id === "opera" || b.id === "operagx"));
-  if (operaDetected) return operaDetected.id;
+  // 2. Opera GX or Opera if detected
+  const opera = detectedBrowsers.find(b => b.detected && (b.id === "operagx" || b.id === "opera"));
+  if (opera) return opera.id;
 
-  const detected = detectedBrowsers.find(b => b.detected && b.id !== "firefox");
+  // 3. Google Chrome if detected
+  const chrome = detectedBrowsers.find(b => b.detected && b.id === "chrome");
+  if (chrome) return chrome.id;
+
+  // 4. Any detected browser
+  const detected = detectedBrowsers.find(b => b.detected);
   if (detected) return detected.id;
 
   return "opera";
 }
 
-function updateStep3TargetBrowser() {
-  const browserId = getTargetChromiumBrowser();
-  const browser = detectedBrowsers.find(b => b.id === browserId);
-  const name = browser ? browser.name : "Browser";
-  const btnText = document.getElementById("launch-chromium-text");
-  if (btnText) {
-    btnText.textContent = `Launch ${name} with SnapLoad`;
+function initStep3UI() {
+  step3ActiveBrowserId = getInitialStep3Browser();
+  renderStep3BrowserPicker();
+  updateStep3ActiveBrowserCard();
+}
+
+function renderStep3BrowserPicker() {
+  const pickerEl = document.getElementById("step3-browser-picker");
+  const countEl = document.getElementById("step3-detected-count");
+  if (!pickerEl) return;
+
+  const detectedCount = detectedBrowsers.filter(b => b.detected).length;
+  if (countEl) {
+    countEl.textContent = `${detectedCount} wykryto`;
+  }
+
+  pickerEl.innerHTML = "";
+  for (const b of detectedBrowsers) {
+    const tab = document.createElement("button");
+    tab.className = `step3-browser-tab ${b.id === step3ActiveBrowserId ? "active" : ""} ${b.detected ? "detected" : ""}`;
+    const svgIcon = BROWSER_SVGS[b.id] || BROWSER_SVGS["chrome"];
+
+    tab.innerHTML = `
+      <div class="tab-icon">${svgIcon}</div>
+      <span class="tab-name">${b.name}</span>
+      <span class="tab-dot ${b.detected ? "detected" : ""}" title="${b.detected ? "Wykryto na komputerze" : "Nie wykryto"}"></span>
+    `;
+
+    tab.addEventListener("click", () => {
+      step3ActiveBrowserId = b.id;
+      renderStep3BrowserPicker();
+      updateStep3ActiveBrowserCard();
+    });
+
+    pickerEl.appendChild(tab);
   }
 }
 
-document.getElementById("btn-launch-chromium")?.addEventListener("click", async () => {
-  const browserId = getTargetChromiumBrowser();
-  try {
-    const res = await invoke<string>("launch_browser_with_extension", { browserId });
-    showToast(res || `Launched ${browserId} with SnapLoad!`);
-  } catch (e: any) {
-    showToast(`Notice: ${e}`);
-    const paths = await fetchPaths();
-    await invoke("open_folder", { path: paths.chromium_dir });
-  }
-});
+async function updateStep3ActiveBrowserCard() {
+  const b = detectedBrowsers.find(x => x.id === step3ActiveBrowserId) || detectedBrowsers[0];
+  if (!b) return;
 
-document.getElementById("btn-open-chromium-folder")?.addEventListener("click", async () => {
-  const paths = await fetchPaths();
-  await invoke("open_folder", { path: paths.chromium_dir });
-  showToast("Opened Chromium extension folder");
-});
-
-document.getElementById("btn-copy-chromium-path")?.addEventListener("click", async () => {
-  const paths = await fetchPaths();
+  // Check if browser is running
   try {
-    if (navigator.clipboard) {
-      await navigator.clipboard.writeText(paths.chromium_dir);
-    }
-    showToast("Extension folder path copied to clipboard!");
+    b.is_running = await invoke<boolean>("is_browser_running", { browserId: b.id });
   } catch (_) {
-    showToast(`Path: ${paths.chromium_dir}`);
+    b.is_running = false;
+  }
+
+  const iconEl = document.getElementById("step3-hero-icon");
+  const nameEl = document.getElementById("step3-browser-name");
+  const statusEl = document.getElementById("step3-browser-status");
+  const readyBadgeEl = document.getElementById("step3-ready-badge");
+  const exePathEl = document.getElementById("step3-exe-path");
+  const exeBadgeEl = document.getElementById("step3-exe-badge");
+  const profilePathEl = document.getElementById("step3-profile-path");
+  const profileBadgeEl = document.getElementById("step3-profile-badge");
+  const runningRow = document.getElementById("step3-running-row");
+  const runningStatus = document.getElementById("step3-running-status");
+  const runningBadge = document.getElementById("step3-running-badge");
+  const restartToggleRow = document.getElementById("step3-restart-toggle-row");
+  const restartCb = document.getElementById("cb-restart-browser") as HTMLInputElement | null;
+  const btn = document.getElementById("btn-auto-install") as HTMLButtonElement | null;
+  const btnTitleEl = document.getElementById("auto-install-main-title");
+  const btnSubTitleEl = document.getElementById("auto-install-sub-title");
+  const statusBox = document.getElementById("auto-install-status-box");
+
+  if (iconEl) iconEl.innerHTML = BROWSER_SVGS[b.id] || BROWSER_SVGS["chrome"];
+  if (nameEl) nameEl.textContent = b.name;
+
+  if (statusEl) {
+    if (b.detected) {
+      statusEl.textContent = b.is_running
+        ? "Wykryto na komputerze • Przeglądarka jest obecnie otwarta"
+        : "Wykryto na komputerze • Gotowy do automatycznej instalacji";
+    } else {
+      statusEl.textContent = "Niewykryty w domyślnej ścieżce na tym komputerze";
+    }
+  }
+
+  if (readyBadgeEl) {
+    if (b.detected) {
+      readyBadgeEl.textContent = b.is_running ? "Otwarta" : "Gotowy";
+      readyBadgeEl.className = `pill-badge ${b.is_running ? "warning" : "core"}`;
+    } else {
+      readyBadgeEl.textContent = "Niewykryty";
+      readyBadgeEl.className = "pill-badge";
+    }
+  }
+
+  if (exePathEl) {
+    exePathEl.textContent = b.path || "Nie znaleziono pliku .exe na tym komputerze";
+    exePathEl.title = b.path || "";
+  }
+  if (exeBadgeEl) {
+    exeBadgeEl.textContent = b.detected ? "Wykryto .exe" : "Brak pliku";
+    exeBadgeEl.className = `path-status-badge ${b.detected ? "ok" : "warn"}`;
+  }
+
+  if (profilePathEl) {
+    profilePathEl.textContent = b.profile_path || (b.id === "firefox" ? "%APPDATA%\\Mozilla\\Firefox\\Profiles" : "Domyślny katalog profilu użytkownika");
+    profilePathEl.title = b.profile_path || "";
+  }
+  if (profileBadgeEl) {
+    profileBadgeEl.textContent = b.profile_path ? "Profil aktywny" : "Auto-detekcja";
+    profileBadgeEl.className = `path-status-badge ${b.profile_path ? "ok" : ""}`;
+  }
+
+  // Handle process running status & restart toggle
+  if (runningRow && runningStatus && runningBadge) {
+    if (b.detected && b.is_running) {
+      runningRow.style.display = "flex";
+      runningStatus.textContent = `Proces ${b.name} jest aktywny w systemie`;
+      runningBadge.textContent = "Uruchomiona";
+      runningBadge.className = "path-status-badge warn";
+    } else {
+      runningRow.style.display = "none";
+    }
+  }
+
+  if (restartToggleRow) {
+    restartToggleRow.style.display = (b.detected && b.is_running) ? "block" : "none";
+  }
+
+  // Button title & subtitle
+  const willRestart = (b.detected && b.is_running && (!restartCb || restartCb.checked));
+  if (btnTitleEl) {
+    if (!b.detected) {
+      btnTitleEl.textContent = `Przeglądarka ${b.name} nie została znaleziona`;
+    } else if (willRestart) {
+      btnTitleEl.textContent = `Zainstaluj i zrestartuj w ${b.name}`;
+    } else {
+      btnTitleEl.textContent = `Zainstaluj automatycznie w ${b.name}`;
+    }
+  }
+
+  if (btnSubTitleEl) {
+    if (!b.detected) {
+      btnSubTitleEl.textContent = "Zainstaluj przeglądarkę na komputerze lub wybierz inną z powyższej listy";
+    } else if (willRestart) {
+      btnSubTitleEl.textContent = `Zamyka bieżące okno i uruchamia ${b.name} z rozszerzeniem SnapLoad na YouTube`;
+    } else {
+      btnSubTitleEl.textContent = `1 kliknięcie: konfiguruje pliki, rejestr i uruchamia ${b.name} z rozszerzeniem`;
+    }
+  }
+
+  if (btn) {
+    btn.disabled = !b.detected;
+  }
+
+  if (statusBox) {
+    statusBox.classList.add("hidden");
+  }
+}
+
+// React to restart checkbox toggle
+document.getElementById("cb-restart-browser")?.addEventListener("change", () => {
+  const b = detectedBrowsers.find(x => x.id === step3ActiveBrowserId);
+  const restartCb = document.getElementById("cb-restart-browser") as HTMLInputElement | null;
+  const btnTitleEl = document.getElementById("auto-install-main-title");
+  const btnSubTitleEl = document.getElementById("auto-install-sub-title");
+  if (!b || !btnTitleEl || !btnSubTitleEl) return;
+
+  const willRestart = (b.detected && b.is_running && restartCb && restartCb.checked);
+  if (willRestart) {
+    btnTitleEl.textContent = `Zainstaluj i zrestartuj w ${b.name}`;
+    btnSubTitleEl.textContent = `Zamyka bieżące okno i uruchamia ${b.name} z rozszerzeniem SnapLoad na YouTube`;
+  } else {
+    btnTitleEl.textContent = `Zainstaluj automatycznie w ${b.name}`;
+    btnSubTitleEl.textContent = `Konfiguruje pliki i rejestr (rozszerzenie uaktywni się po ponownym otwarciu ${b.name})`;
   }
 });
 
-document.getElementById("btn-launch-firefox")?.addEventListener("click", async () => {
+// 1-Click Auto Install Action
+document.getElementById("btn-auto-install")?.addEventListener("click", async () => {
+  const b = detectedBrowsers.find(x => x.id === step3ActiveBrowserId) || detectedBrowsers[0];
+  const btn = document.getElementById("btn-auto-install") as HTMLButtonElement;
+  const btnTitle = document.getElementById("auto-install-main-title") as HTMLElement;
+  const btnSubtitle = document.getElementById("auto-install-sub-title") as HTMLElement;
+  const statusBox = document.getElementById("auto-install-status-box") as HTMLElement;
+  const statusTitle = document.getElementById("status-box-title") as HTMLElement;
+  const statusDesc = document.getElementById("status-box-desc") as HTMLElement;
+  const statusIcon = document.getElementById("status-box-icon") as HTMLElement;
+  const restartCb = document.getElementById("cb-restart-browser") as HTMLInputElement | null;
+  const restartIfRunning = restartCb ? restartCb.checked : true;
+
+  if (!btn || !btnTitle || !btnSubtitle) return;
+
+  btn.disabled = true;
+  const actionWord = (b.is_running && restartIfRunning) ? "Restartowanie i aktywacja" : "Instalowanie i uruchamianie";
+  btnTitle.innerHTML = `<span class="spinner" style="margin-right: 8px;"></span>${actionWord} w ${b.name}...`;
+  btnSubtitle.textContent = "Weryfikacja ścieżki .exe, konfiguracja rejestru i otwieranie przeglądarki...";
+
   try {
-    const res = await invoke<string>("launch_browser_with_extension", { browserId: "firefox" });
-    showToast(res || "Opened Firefox — click 'Add' to install extension!");
-  } catch (e: any) {
-    showToast(`Notice: ${e}`);
+    const res = await invoke<AutoInstallResult>("auto_install_browser_extension", {
+      browserId: b.id,
+      restartIfRunning,
+    });
+
+    b.detected = true;
+    if (res.exe_path) b.path = res.exe_path;
+    if (res.profile_path) b.profile_path = res.profile_path;
+
+    // Copy extension folder/xpi to clipboard for extra convenience
     const paths = await fetchPaths();
-    await invoke("open_folder", { path: paths.app_dir + "\\extensions\\firefox" });
+    const folder = b.id === "firefox" ? paths.firefox_xpi : paths.chromium_dir;
+    await invoke("copy_to_clipboard", { text: folder }).catch(() => {});
+    if (navigator.clipboard) {
+      await navigator.clipboard.writeText(folder).catch(() => {});
+    }
+
+    btn.disabled = false;
+    btnTitle.textContent = `✓ Rozszerzenie aktywne w ${res.browser_name}!`;
+    btnSubtitle.textContent = "Kliknij ponownie, aby otworzyć przeglądarkę z załadowanym rozszerzeniem";
+
+    if (statusBox && statusTitle && statusDesc) {
+      statusBox.className = "auto-install-status-box success";
+      if (statusIcon) statusIcon.textContent = "✓";
+      statusTitle.textContent = `Rozszerzenie aktywne w ${res.browser_name}!`;
+      statusDesc.textContent = `${res.message} Przeglądarka została uruchomiona z YouTube. Ścieżka rozszerzenia została skopiowana do schowka!`;
+    }
+
+    renderStep3BrowserPicker();
+    await updateStep3ActiveBrowserCard();
+    if (statusBox) statusBox.classList.remove("hidden");
+
+    showToast(`SnapLoad zainstalowany w ${res.browser_name}!`);
+  } catch (err: any) {
+    btn.disabled = false;
+    btnTitle.textContent = `Zainstaluj automatycznie w ${b.name}`;
+    btnSubtitle.textContent = "Wystąpił błąd — kliknij aby spróbować ponownie";
+
+    if (statusBox && statusTitle && statusDesc) {
+      statusBox.className = "auto-install-status-box error";
+      if (statusIcon) statusIcon.textContent = "!";
+      statusTitle.textContent = `Nie udało się zainstalować w ${b.name}`;
+      statusDesc.textContent = String(err);
+    }
+    showToast(`Błąd: ${err}`);
   }
 });
 
-document.getElementById("btn-open-firefox-addons")?.addEventListener("click", async () => {
-  try {
-    await invoke("open_browser_extensions_page", { browserId: "firefox" });
-    showToast("Opened about:addons in Firefox");
-  } catch (e: any) {
-    const paths = await fetchPaths();
-    await invoke("open_folder", { path: paths.app_dir + "\\extensions\\firefox" });
-  }
-});
-
-document.getElementById("btn-open-firefox-folder")?.addEventListener("click", async () => {
+// Advanced Options Handlers
+document.getElementById("btn-open-active-ext-folder")?.addEventListener("click", async () => {
   const paths = await fetchPaths();
-  await invoke("open_folder", { path: paths.app_dir + "\\extensions\\firefox" });
-  showToast("Opened Firefox extension folder");
+  const folder = step3ActiveBrowserId === "firefox"
+    ? paths.app_dir + "\\extensions\\firefox"
+    : paths.chromium_dir;
+  await invoke("open_folder", { path: folder });
+  showToast("Otwarto folder rozszerzenia");
 });
 
-// Step 3 Live Verification Test
+document.getElementById("btn-copy-ext-path")?.addEventListener("click", async () => {
+  const paths = await fetchPaths();
+  const folder = step3ActiveBrowserId === "firefox"
+    ? paths.firefox_xpi
+    : paths.chromium_dir;
+  await invoke("copy_to_clipboard", { text: folder }).catch(() => {});
+  if (navigator.clipboard) {
+    await navigator.clipboard.writeText(folder).catch(() => {});
+  }
+  showToast("Skopiowano ścieżkę do schowka: " + folder);
+});
+
+document.getElementById("btn-open-browser-ext-page")?.addEventListener("click", async () => {
+  try {
+    const res = await invoke<string>("open_browser_extensions_page", { browserId: step3ActiveBrowserId });
+    showToast(res || "Otwarto stronę rozszerzeń");
+  } catch (e: any) {
+    showToast(`Błąd: ${e}`);
+  }
+});
+
 document.getElementById("btn-step3-verify")?.addEventListener("click", async () => {
   const btn = document.getElementById("btn-step3-verify") as HTMLButtonElement;
   const container = document.getElementById("step3-verify-results") as HTMLElement;
   btn.disabled = true;
-  btn.innerHTML = `<span class="spinner"></span> Verifying...`;
+  btn.innerHTML = `<span class="spinner"></span> Weryfikacja...`;
   container.style.display = "flex";
-  container.innerHTML = `<li style="padding: 12px; text-align: center; color: var(--text-secondary); width: 100%;"><span class="spinner" style="margin-right: 8px;"></span>Testing engine binaries, Windows registry keys, manifests and live IPC...</li>`;
+  container.innerHTML = `<li style="padding: 12px; text-align: center; color: var(--text-secondary); width: 100%;"><span class="spinner" style="margin-right: 8px;"></span>Testowanie plików, rejestru i połączenia IPC...</li>`;
 
   try {
     const result = await invoke<DiagnosticResult>("verify_installation");
     renderDiagnosticItems(container, result);
-    btn.innerHTML = `Verify Installation Now`;
+    btn.innerHTML = `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg> Sprawdź diagnostykę instalacji`;
     btn.disabled = false;
-    showToast(`Verification complete: ${result.passed}/${result.total} checks passed!`);
+    showToast(`Weryfikacja ukończona: ${result.passed}/${result.total} testów zaliczonych!`);
   } catch (e: any) {
-    btn.innerHTML = `Verify Installation Now`;
+    btn.innerHTML = `Sprawdź diagnostykę instalacji`;
     btn.disabled = false;
-    container.innerHTML = `<li class="diag-item"><span class="diag-status-badge error">ERROR</span><div class="diag-content"><div class="diag-title">Verification Error</div><div class="diag-message">${e}</div></div></li>`;
+    container.innerHTML = `<li class="diag-item"><span class="diag-status-badge error">BŁĄD</span><div class="diag-content"><div class="diag-title">Błąd weryfikacji</div><div class="diag-message">${e}</div></div></li>`;
   }
 });
 
