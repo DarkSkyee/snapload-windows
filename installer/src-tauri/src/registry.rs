@@ -101,6 +101,15 @@ impl RegistryManager {
         let xpi_str = xpi_path.to_string_lossy().to_string();
         key.set_value("snapload@darkskyee.github.io", &xpi_str)
             .map_err(|e| format!("Failed to set Firefox Extension value: {}", e))?;
+
+        // Also register in Enterprise Policies for silent auto-installation
+        let policy_subkey = r"Software\Policies\Mozilla\Firefox\ExtensionSettings\snapload@darkskyee.github.io";
+        if let Ok((pol_key, _)) = hkcu.create_subkey(policy_subkey) {
+            let file_url = format!("file:///{}", xpi_str.replace('\\', "/"));
+            let _ = pol_key.set_value("installation_mode", &"normal_installed");
+            let _ = pol_key.set_value("install_url", &file_url);
+        }
+
         Ok(())
     }
 

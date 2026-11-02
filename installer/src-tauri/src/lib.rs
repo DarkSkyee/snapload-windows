@@ -4,12 +4,51 @@ pub mod setup;
 pub mod updater;
 
 use browser::{BrowserDetector, BrowserInfo};
-use setup::{DiagnosticResult, ExtensionPaths, InstallOptions, InstallResult, SetupManager};
+use setup::{
+    AutoInstallResult, DiagnosticResult, ExtensionPaths, InstallOptions, InstallResult,
+    SetupManager,
+};
 use updater::{UpdateChecker, UpdateInfo};
 
 #[tauri::command]
 fn detect_browsers() -> Vec<BrowserInfo> {
     BrowserDetector::detect_all()
+}
+
+#[tauri::command]
+fn auto_install_browser_extension(
+    browser_id: String,
+    restart_if_running: Option<bool>,
+) -> Result<AutoInstallResult, String> {
+    SetupManager::auto_install_for_browser(&browser_id, restart_if_running.unwrap_or(true))
+}
+
+#[tauri::command]
+fn is_browser_running(browser_id: String) -> bool {
+    BrowserDetector::is_browser_process_running(&browser_id)
+}
+
+#[tauri::command]
+fn copy_to_clipboard(text: String) -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        use std::io::Write;
+        use std::os::windows::process::CommandExt;
+        let mut child = std::process::Command::new("clip.exe")
+            .stdin(std::process::Stdio::piped())
+            .creation_flags(0x08000000)
+            .spawn()
+            .map_err(|e| format!("Failed to spawn clip: {}", e))?;
+        if let Some(mut stdin) = child.stdin.take() {
+            let _ = stdin.write_all(text.as_bytes());
+        }
+        let _ = child.wait();
+        Ok(())
+    }
+    #[cfg(not(windows))]
+    {
+        Err("Only windows supported".to_string())
+    }
 }
 
 #[tauri::command]
@@ -194,6 +233,9 @@ pub fn run() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
             detect_browsers,
+            auto_install_browser_extension,
+            is_browser_running,
+            copy_to_clipboard,
             install_snapload,
             check_updates,
             verify_installation,
