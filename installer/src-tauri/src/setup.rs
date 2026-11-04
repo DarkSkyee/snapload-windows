@@ -345,7 +345,10 @@ impl SetupManager {
         logs.push(format!("Chromium Host Manifest: {:?}", chrome_manifest));
         logs.push(format!("Firefox Host Manifest: {:?}", firefox_manifest));
 
-        // 5. Register in Windows Registry for selected browsers
+        // 5. Register in Windows Registry for selected browsers and all Chromium browsers
+        RegistryManager::register_all_chromium_hosts(&chrome_manifest);
+        logs.push("Configured Native Messaging Host for all Chromium browsers (Chrome, Edge, Brave, Opera, Opera GX)".to_string());
+
         for b_id in &options.browsers {
             let manifest_to_use = if b_id == "firefox" {
                 &firefox_manifest
@@ -708,21 +711,90 @@ impl SetupManager {
     pub fn uninstall() -> Result<Vec<String>, String> {
         let mut logs = Vec::new();
 
-        // 1. Unregister all registry keys
+        // 1. Terminate running SnapLoad engine and utility processes
+        #[cfg(windows)]
+        {
+            let mut cmd = std::process::Command::new("taskkill.exe");
+            cmd.args(["/F", "/IM", "snapload-engine.exe", "/IM", "ffmpeg.exe", "/IM", "yt-dlp.exe"]);
+            cmd.creation_flags(CREATE_NO_WINDOW);
+            let _ = cmd.output();
+            std::thread::sleep(std::time::Duration::from_millis(500));
+        }
+
+        // 2. Unregister all registry keys
         let removed_keys = RegistryManager::unregister_all();
         logs.push(format!(
             "Removed {} registry registrations",
             removed_keys.len()
         ));
 
-        // 2. Remove application directory (excluding user downloads)
+        // 3. Remove extension files from all browser profiles
+        let ext_id = "ikkidkbojpedpeaomipgioiigmjlpflg";
+        let browsers = ["chrome", "edge", "brave", "opera", "operagx", "firefox"];
+        for b_id in browsers {
+            let profs = BrowserDetector::find_browser_profiles(b_id);
+            for p in profs {
+                let target = p.join("Extensions").join(ext_id);
+                if target.exists() {
+                    let _ = remove_dir_all(&target);
+                    logs.push(format!("Removed extension from {} profile: {:?}", b_id, target));
+                }
+                if b_id == "firefox" {
+                    let ff_ext = p.join("extensions").join("snapload@darkskyee.github.io.xpi");
+                    if ff_ext.exists() {
+                        let _ = std::fs::remove_file(&ff_ext);
+                        logs.push(format!("Removed Firefox extension XPI: {:?}", ff_ext));
+                    }
+                }
+            }
+        }
+
+        // Also check explicit standard paths for browser extension folders
+        let mut explicit_ext_paths = Vec::new();
+        if let Some(appdata) = std::env::var_os("APPDATA") {
+            explicit_ext_paths.push(PathBuf::from(&appdata).join("Opera Software").join("Opera Stable").join("Default").join("Extensions").join(ext_id));
+            explicit_ext_paths.push(PathBuf::from(&appdata).join("Opera Software").join("Opera GX Stable").join("Default").join("Extensions").join(ext_id));
+        }
+        if let Some(local) = std::env::var_os("LOCALAPPDATA") {
+            explicit_ext_paths.push(PathBuf::from(&local).join("Opera Software").join("Opera Stable").join("Default").join("Extensions").join(ext_id));
+            explicit_ext_paths.push(PathBuf::from(&local).join("Opera Software").join("Opera GX Stable").join("Default").join("Extensions").join(ext_id));
+            explicit_ext_paths.push(PathBuf::from(&local).join("Google").join("Chrome").join("User Data").join("Default").join("Extensions").join(ext_id));
+            explicit_ext_paths.push(PathBuf::from(&local).join("Microsoft").join("Edge").join("User Data").join("Default").join("Extensions").join(ext_id));
+            explicit_ext_paths.push(PathBuf::from(&local).join("BraveSoftware").join("Brave-Browser").join("User Data").join("Default").join("Extensions").join(ext_id));
+        }
+        for path in explicit_ext_paths {
+            if path.exists() {
+                let _ = remove_dir_all(&path);
+                logs.push(format!("Cleaned browser extension directory: {:?}", path));
+            }
+        }
+
+        // 4. Remove binaries including ffmpeg.exe, yt-dlp.exe, snapload-engine.exe
+        let bin_dir = Self::get_bin_dir();
+        let ffmpeg_path = bin_dir.join("ffmpeg.exe");
+        if ffmpeg_path.exists() {
+            let _ = std::fs::remove_file(&ffmpeg_path);
+            logs.push("Removed FFmpeg media converter binary".to_string());
+        }
+        let ytdlp_path = bin_dir.join("yt-dlp.exe");
+        if ytdlp_path.exists() {
+            let _ = std::fs::remove_file(&ytdlp_path);
+            logs.push("Removed yt-dlp binary".to_string());
+        }
+        let engine_path = bin_dir.join("snapload-engine.exe");
+        if engine_path.exists() {
+            let _ = std::fs::remove_file(&engine_path);
+            logs.push("Removed SnapLoad Engine binary".to_string());
+        }
+
+        // 5. Remove application directory (excluding user downloads)
         let app_dir = Self::get_app_dir();
         if app_dir.exists() {
-            let _ = remove_dir_all(app_dir);
+            let _ = remove_dir_all(&app_dir);
             logs.push("Cleaned up %LOCALAPPDATA%\\SnapLoad".to_string());
         }
 
-        logs.push("SnapLoad components uninstalled. Downloaded media preserved.".to_string());
+        logs.push("SnapLoad components and browser extensions uninstalled. Downloaded media preserved.".to_string());
         Ok(logs)
     }
 
@@ -1025,19 +1097,16 @@ impl SetupManager {
             let _ = RegistryManager::register_chromium_extension(browser_id, &chrome_unpacked);
             logs.push(format!("Registered extension in Windows Registry for {}", name));
 
-            // Launch browser with extension loaded in detached process
+            // Launch browser in detached process
             #[cfg(windows)]
             {
                 use std::os::windows::process::CommandExt;
                 const CREATE_NEW_PROCESS_GROUP: u32 = 0x00000200;
                 let mut cmd = std::process::Command::new(&exe_path);
-                let ext_str = chrome_unpacked.to_string_lossy().to_string();
-                cmd.arg(format!("--load-extension={}", ext_str));
-                cmd.arg("--enable-extensions");
                 cmd.arg("https://www.youtube.com");
                 cmd.creation_flags(CREATE_NEW_PROCESS_GROUP);
                 cmd.spawn().map_err(|e| format!("Failed to launch {}: {}", name, e))?;
-                logs.push(format!("Launched {} with SnapLoad extension on YouTube", name));
+                logs.push(format!("Launched {} on YouTube with SnapLoad configured", name));
             }
         }
 

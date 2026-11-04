@@ -30,19 +30,32 @@ function getCanonicalVideoUrl(): string {
 }
 
 /**
- * Locates YouTube player right-side controls container using progressive fallbacks.
+ * Locates YouTube active player right-side controls container, filtering out inline preview player.
  */
 function getRightControls(): Element | null {
-  return (
-    document.querySelector("#movie_player .ytp-right-controls") ||
-    document.querySelector(".html5-video-player .ytp-right-controls") ||
-    document.querySelector(".ytp-chrome-controls .ytp-right-controls") ||
-    document.querySelector(".ytp-right-controls")
-  );
+  try {
+    const all = document.querySelectorAll(".ytp-right-controls");
+    for (const el of all) {
+      if (!el.closest("#inline-preview-player")) {
+        return el;
+      }
+    }
+
+    const player =
+      document.querySelector("#movie_player:not([hidden])") ||
+      document.querySelector(".html5-video-player:not(#inline-preview-player)") ||
+      document.querySelector(".html5-video-player");
+
+    if (player) {
+      const right = player.querySelector(".ytp-right-controls");
+      if (right) return right;
+    }
+  } catch (_) {}
+  return null;
 }
 
 // ==========================================
-// 1. YouTube Player Control Bar Button (SponsorBlock style)
+// 1. YouTube Player Control Bar Button
 // ==========================================
 function createPlayerButton(): HTMLElement {
   const btn = document.createElement("button");
@@ -78,74 +91,86 @@ function createPlayerButton(): HTMLElement {
   `;
 
   btn.addEventListener("click", (e) => {
-    e.preventDefault();
-    e.stopPropagation();
+    try {
+      e.preventDefault();
+      e.stopPropagation();
 
-    const normalIcon = btn.querySelector(".snapload-ytp-icon-normal") as HTMLElement;
-    const successIcon = btn.querySelector(".snapload-ytp-icon-success") as HTMLElement;
-    const errorIcon = btn.querySelector(".snapload-ytp-icon-error") as HTMLElement;
+      const normalIcon = btn.querySelector(".snapload-ytp-icon-normal") as HTMLElement | null;
+      const successIcon = btn.querySelector(".snapload-ytp-icon-success") as HTMLElement | null;
+      const errorIcon = btn.querySelector(".snapload-ytp-icon-error") as HTMLElement | null;
 
-    btn.classList.add("downloading");
-    btn.setAttribute("title", "Initiating SnapLoad...");
+      btn.classList.add("downloading");
+      btn.setAttribute("title", "Initiating SnapLoad...");
 
-    const videoUrl = getCanonicalVideoUrl();
-    console.log("[SnapLoad Player] Starting download for:", videoUrl);
+      const videoUrl = getCanonicalVideoUrl();
+      console.log("[SnapLoad Player] Starting download for:", videoUrl);
 
-    api.runtime.sendMessage({
-      type: "START_DOWNLOAD",
-      payload: { url: videoUrl },
-    }, (response: any) => {
-      if (response && response.success) {
-        if (normalIcon) normalIcon.style.display = "none";
-        if (successIcon) successIcon.style.display = "block";
-        btn.setAttribute("title", "Download Started ✓ (Saved to Downloads)");
-      } else {
-        if (normalIcon) normalIcon.style.display = "none";
-        if (errorIcon) errorIcon.style.display = "block";
-        btn.setAttribute("title", "SnapLoad Engine Offline - Run Setup");
-      }
+      api.runtime.sendMessage({
+        type: "START_DOWNLOAD",
+        payload: { url: videoUrl },
+      }, (response: any) => {
+        try {
+          if (response && response.success) {
+            if (normalIcon) normalIcon.style.display = "none";
+            if (successIcon) successIcon.style.display = "block";
+            btn.setAttribute("title", "Download Started ✓ (Saved to Downloads)");
+          } else {
+            if (normalIcon) normalIcon.style.display = "none";
+            if (errorIcon) errorIcon.style.display = "block";
+            btn.setAttribute("title", "SnapLoad Engine Offline - Run Setup");
+          }
 
-      setTimeout(() => {
-        btn.classList.remove("downloading");
-        if (normalIcon) normalIcon.style.display = "block";
-        if (successIcon) successIcon.style.display = "none";
-        if (errorIcon) errorIcon.style.display = "none";
-        btn.setAttribute("title", "Download with SnapLoad");
-      }, 3500);
-    });
+          setTimeout(() => {
+            btn.classList.remove("downloading");
+            if (normalIcon) normalIcon.style.display = "block";
+            if (successIcon) successIcon.style.display = "none";
+            if (errorIcon) errorIcon.style.display = "none";
+            btn.setAttribute("title", "Download with SnapLoad");
+          }, 3500);
+        } catch (_) {}
+      });
+    } catch (_) {}
   });
 
   return btn;
 }
 
 function injectPlayerButton() {
-  const rightControls = getRightControls();
-  if (!rightControls) {
-    return;
+  try {
+    const rightControls = getRightControls();
+    if (!rightControls) {
+      return;
+    }
+
+    const existing = document.getElementById(PLAYER_BUTTON_ID);
+    if (existing) {
+      if (rightControls.contains(existing)) {
+        return; // Already present in current controls, do not mutate DOM
+      }
+      existing.remove();
+    }
+
+    const btn = createPlayerButton();
+
+    // Position before settings button or subtitles button if child of rightControls
+    const settingsBtn = rightControls.querySelector(".ytp-settings-button");
+    const subBtn = rightControls.querySelector(".ytp-subtitles-button");
+    const target = (settingsBtn && settingsBtn.parentNode === rightControls)
+      ? settingsBtn
+      : (subBtn && subBtn.parentNode === rightControls)
+        ? subBtn
+        : null;
+
+    if (target) {
+      rightControls.insertBefore(btn, target);
+    } else {
+      rightControls.appendChild(btn);
+    }
+
+    console.log("[SnapLoad] Injected player control bar button.");
+  } catch (err) {
+    console.debug("[SnapLoad] Non-fatal error injecting player button:", err);
   }
-
-  const existing = document.getElementById(PLAYER_BUTTON_ID);
-  if (existing && rightControls.contains(existing)) {
-    return;
-  }
-  if (existing) {
-    existing.remove();
-  }
-
-  const btn = createPlayerButton();
-
-  // SponsorBlock positioning: place before settings or subtitles, or fallback to firstChild
-  const settingsBtn = rightControls.querySelector(".ytp-settings-button");
-  const subBtn = rightControls.querySelector(".ytp-subtitles-button");
-  const target = settingsBtn || subBtn || rightControls.firstChild;
-
-  if (target) {
-    rightControls.insertBefore(btn, target);
-  } else {
-    rightControls.appendChild(btn);
-  }
-
-  console.log("[SnapLoad] Injected player control bar button into controls.");
 }
 
 // ==========================================
@@ -181,66 +206,77 @@ function createActionButton(): HTMLElement {
 
   const btn = container.querySelector(".snapload-download-btn") as HTMLButtonElement;
   btn.addEventListener("click", (e) => {
-    e.preventDefault();
-    e.stopPropagation();
+    try {
+      e.preventDefault();
+      e.stopPropagation();
 
-    const videoUrl = getCanonicalVideoUrl();
-    console.log("[SnapLoad Action] Triggering download for:", videoUrl);
+      const videoUrl = getCanonicalVideoUrl();
+      console.log("[SnapLoad Action] Triggering download for:", videoUrl);
 
-    btn.classList.add("downloading");
-    const label = btn.querySelector(".snapload-btn-label");
-    if (label) label.textContent = "Starting...";
+      btn.classList.add("downloading");
+      const label = btn.querySelector(".snapload-btn-label");
+      if (label) label.textContent = "Starting...";
 
-    api.runtime.sendMessage({
-      type: "START_DOWNLOAD",
-      payload: { url: videoUrl },
-    }, (response: any) => {
-      if (response && response.success) {
-        if (label) label.textContent = "Started ✓";
-      } else {
-        if (label) label.textContent = "Offline";
-      }
-      setTimeout(() => {
-        btn.classList.remove("downloading");
-        if (label) label.textContent = "SnapLoad";
-      }, 3000);
-    });
+      api.runtime.sendMessage({
+        type: "START_DOWNLOAD",
+        payload: { url: videoUrl },
+      }, (response: any) => {
+        try {
+          if (response && response.success) {
+            if (label) label.textContent = "Started ✓";
+          } else {
+            if (label) label.textContent = "Offline";
+          }
+          setTimeout(() => {
+            btn.classList.remove("downloading");
+            if (label) label.textContent = "SnapLoad";
+          }, 3000);
+        } catch (_) {}
+      });
+    } catch (_) {}
   });
 
   return container;
 }
 
 function injectActionButton() {
-  const candidates = [
-    "#top-level-buttons-computed",
-    "#actions-inner #menu",
-    "#actions #top-level-buttons-computed",
-    "ytd-watch-metadata #actions #top-level-buttons-computed",
-    "#owner #subscribe-button",
-  ];
+  try {
+    const isWatch = window.location.pathname.startsWith("/watch");
+    if (!isWatch) return;
 
-  let targetElement: Element | null = null;
-  for (const selector of candidates) {
-    const el = document.querySelector(selector);
-    if (el) {
-      targetElement = el;
-      break;
+    // Use only top-level container locations that don't disrupt internal Polymer shadow trees
+    const candidates = [
+      "#actions #actions-inner #menu",
+      "#actions #actions-inner",
+      "#actions #top-level-buttons-computed",
+      "ytd-watch-metadata #actions #top-level-buttons-computed",
+    ];
+
+    let targetElement: Element | null = null;
+    for (const selector of candidates) {
+      const el = document.querySelector(selector);
+      if (el) {
+        targetElement = el;
+        break;
+      }
     }
-  }
 
-  if (!targetElement) return;
+    if (!targetElement) return;
 
-  const existing = document.getElementById(ACTION_BUTTON_ID);
-  if (existing && targetElement.contains(existing)) {
-    return;
-  }
-  if (existing) {
-    existing.remove();
-  }
+    const existing = document.getElementById(ACTION_BUTTON_ID);
+    if (existing) {
+      if (targetElement.contains(existing)) {
+        return; // Already present, avoid re-inserting
+      }
+      existing.remove();
+    }
 
-  const button = createActionButton();
-  targetElement.appendChild(button);
-  console.log("[SnapLoad] Injected action bar button.");
+    const button = createActionButton();
+    targetElement.appendChild(button);
+    console.log("[SnapLoad] Injected action bar button.");
+  } catch (err) {
+    console.debug("[SnapLoad] Non-fatal error injecting action button:", err);
+  }
 }
 
 // ==========================================
@@ -266,252 +302,276 @@ function createShortsButton(): HTMLElement {
 
   const btn = container.querySelector(".snapload-shorts-btn") as HTMLButtonElement;
   btn.addEventListener("click", (e) => {
-    e.preventDefault();
-    e.stopPropagation();
+    try {
+      e.preventDefault();
+      e.stopPropagation();
 
-    const videoUrl = getCanonicalVideoUrl();
-    const label = container.querySelector(".snapload-shorts-label");
-    if (label) label.textContent = "Sending...";
+      const videoUrl = getCanonicalVideoUrl();
+      const label = container.querySelector(".snapload-shorts-label");
+      if (label) label.textContent = "Sending...";
 
-    api.runtime.sendMessage({
-      type: "START_DOWNLOAD",
-      payload: { url: videoUrl },
-    }, (response: any) => {
-      if (response && response.success) {
-        if (label) label.textContent = "Started ✓";
-      } else {
-        if (label) label.textContent = "Offline";
-      }
-      setTimeout(() => {
-        if (label) label.textContent = "SnapLoad";
-      }, 3000);
-    });
+      api.runtime.sendMessage({
+        type: "START_DOWNLOAD",
+        payload: { url: videoUrl },
+      }, (response: any) => {
+        try {
+          if (response && response.success) {
+            if (label) label.textContent = "Started ✓";
+          } else {
+            if (label) label.textContent = "Offline";
+          }
+          setTimeout(() => {
+            if (label) label.textContent = "SnapLoad";
+          }, 3000);
+        } catch (_) {}
+      });
+    } catch (_) {}
   });
 
   return container;
 }
 
 function injectShortsButton() {
-  const activeReel =
-    document.querySelector("ytd-reel-video-renderer[is-active] #actions") ||
-    document.querySelector("ytd-reel-player-overlay-renderer[is-active] #actions") ||
-    document.querySelector("ytd-reel-video-renderer[is-active] #actions-inner") ||
-    document.querySelector(".ytd-reel-player-overlay-renderer #actions");
+  try {
+    const isShorts = window.location.pathname.startsWith("/shorts");
+    if (!isShorts) return;
 
-  if (!activeReel) {
-    return;
-  }
+    const activeReel =
+      document.querySelector("ytd-reel-video-renderer[is-active] #actions") ||
+      document.querySelector("ytd-reel-player-overlay-renderer[is-active] #actions") ||
+      document.querySelector("ytd-reel-video-renderer[is-active] #actions-inner") ||
+      document.querySelector(".ytd-reel-player-overlay-renderer #actions");
 
-  const existing = document.getElementById(SHORTS_BUTTON_ID);
-  if (existing && activeReel.contains(existing)) {
-    return;
-  }
-  if (existing) {
-    existing.remove();
-  }
+    if (!activeReel) {
+      return;
+    }
 
-  const container = createShortsButton();
-  activeReel.insertBefore(container, activeReel.firstChild);
-  console.log("[SnapLoad] Injected Shorts action button.");
+    const existing = document.getElementById(SHORTS_BUTTON_ID);
+    if (existing) {
+      if (activeReel.contains(existing)) {
+        return;
+      }
+      existing.remove();
+    }
+
+    const container = createShortsButton();
+    activeReel.insertBefore(container, activeReel.firstChild);
+    console.log("[SnapLoad] Injected Shorts action button.");
+  } catch (err) {
+    console.debug("[SnapLoad] Non-fatal error injecting Shorts button:", err);
+  }
 }
 
 // ==========================================
 // Scoped Styles for All SnapLoad Buttons
 // ==========================================
 function injectGlobalStyles() {
-  if (document.getElementById("snapload-injected-styles")) return;
+  try {
+    if (document.getElementById("snapload-injected-styles")) return;
 
-  const style = document.createElement("style");
-  style.id = "snapload-injected-styles";
-  style.textContent = `
-    /* SponsorBlock-style Player Control Button */
-    .snapload-ytp-btn {
-      display: inline-block !important;
-      width: 46px !important;
-      height: 100% !important;
-      vertical-align: top !important;
-      text-align: center !important;
-      cursor: pointer !important;
-      border: none !important;
-      background: transparent !important;
-      padding: 0 !important;
-      outline: none !important;
-      position: relative !important;
-      opacity: 0.9;
-      transition: opacity 0.2s ease, transform 0.15s ease;
-    }
-    .snapload-ytp-btn:hover {
-      opacity: 1 !important;
-      transform: scale(1.12);
-    }
-    .snapload-ytp-btn:active {
-      transform: scale(0.92);
-    }
-    .snapload-ytp-btn.downloading {
-      pointer-events: none;
-    }
+    const style = document.createElement("style");
+    style.id = "snapload-injected-styles";
+    style.textContent = `
+      /* SponsorBlock-style Player Control Button */
+      .snapload-ytp-btn {
+        display: inline-block !important;
+        width: 46px !important;
+        height: 100% !important;
+        vertical-align: top !important;
+        text-align: center !important;
+        cursor: pointer !important;
+        border: none !important;
+        background: transparent !important;
+        padding: 0 !important;
+        outline: none !important;
+        position: relative !important;
+        opacity: 0.9;
+        transition: opacity 0.2s ease, transform 0.15s ease;
+      }
+      .snapload-ytp-btn:hover {
+        opacity: 1 !important;
+        transform: scale(1.12);
+      }
+      .snapload-ytp-btn:active {
+        transform: scale(0.92);
+      }
+      .snapload-ytp-btn.downloading {
+        pointer-events: none;
+      }
 
-    /* Action Bar Pill Button */
-    #${ACTION_BUTTON_ID} {
-      display: inline-flex;
-      align-items: center;
-      margin-left: 8px;
-      vertical-align: middle;
-      font-family: "Roboto", "Segoe UI", sans-serif;
-    }
-    .snapload-download-btn {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      height: 36px;
-      padding: 0 14px;
-      border: 1px solid rgba(99, 102, 241, 0.4);
-      border-radius: 18px;
-      background: linear-gradient(135deg, rgba(15, 23, 42, 0.95), rgba(30, 20, 59, 0.95));
-      color: #F8FAFC;
-      font-size: 14px;
-      font-weight: 500;
-      cursor: pointer;
-      transition: all 0.2s ease;
-      box-shadow: 0 2px 8px rgba(0, 242, 254, 0.15);
-      user-select: none;
-    }
-    .snapload-download-btn:hover {
-      background: linear-gradient(135deg, rgba(30, 41, 59, 0.98), rgba(49, 36, 90, 0.98));
-      border-color: #00F2FE;
-      box-shadow: 0 0 12px rgba(0, 242, 254, 0.35);
-      transform: translateY(-1px);
-    }
-    .snapload-download-btn:active {
-      transform: scale(0.97);
-    }
-    .snapload-download-btn.downloading {
-      border-color: #10B981;
-      color: #10B981;
-      pointer-events: none;
-    }
+      /* Action Bar Pill Button */
+      #${ACTION_BUTTON_ID} {
+        display: inline-flex;
+        align-items: center;
+        margin-left: 8px;
+        vertical-align: middle;
+        font-family: "Roboto", "Segoe UI", sans-serif;
+      }
+      .snapload-download-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        height: 36px;
+        padding: 0 14px;
+        border: 1px solid rgba(99, 102, 241, 0.4);
+        border-radius: 18px;
+        background: linear-gradient(135deg, rgba(15, 23, 42, 0.95), rgba(30, 20, 59, 0.95));
+        color: #F8FAFC;
+        font-size: 14px;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        box-shadow: 0 2px 8px rgba(0, 242, 254, 0.15);
+        user-select: none;
+      }
+      .snapload-download-btn:hover {
+        background: linear-gradient(135deg, rgba(30, 41, 59, 0.98), rgba(49, 36, 90, 0.98));
+        border-color: #00F2FE;
+        box-shadow: 0 0 12px rgba(0, 242, 254, 0.35);
+        transform: translateY(-1px);
+      }
+      .snapload-download-btn:active {
+        transform: scale(0.97);
+      }
+      .snapload-download-btn.downloading {
+        border-color: #10B981;
+        color: #10B981;
+        pointer-events: none;
+      }
 
-    /* YouTube Shorts Button */
-    .snapload-shorts-container {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      margin-bottom: 12px;
-    }
-    .snapload-shorts-btn {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 4px;
-      background: transparent;
-      border: none;
-      color: #FFFFFF;
-      cursor: pointer;
-      outline: none;
-      font-size: 11px;
-      font-weight: 500;
-      transition: transform 0.2s;
-    }
-    .snapload-shorts-btn:hover {
-      transform: scale(1.1);
-    }
-    .snapload-shorts-icon {
-      width: 48px;
-      height: 48px;
-      border-radius: 50%;
-      background: rgba(255, 255, 255, 0.1);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      backdrop-filter: blur(8px);
-    }
-    .snapload-shorts-label {
-      text-shadow: 0 1px 3px rgba(0,0,0,0.8);
-    }
-  `;
+      /* YouTube Shorts Button */
+      .snapload-shorts-container {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        margin-bottom: 12px;
+      }
+      .snapload-shorts-btn {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 4px;
+        background: transparent;
+        border: none;
+        color: #FFFFFF;
+        cursor: pointer;
+        outline: none;
+        font-size: 11px;
+        font-weight: 500;
+        transition: transform 0.2s;
+      }
+      .snapload-shorts-btn:hover {
+        transform: scale(1.1);
+      }
+      .snapload-shorts-icon {
+        width: 48px;
+        height: 48px;
+        border-radius: 50%;
+        background: rgba(255, 255, 255, 0.1);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        backdrop-filter: blur(8px);
+      }
+      .snapload-shorts-label {
+        text-shadow: 0 1px 3px rgba(0,0,0,0.8);
+      }
+    `;
 
-  document.head.appendChild(style);
+    const targetHead = document.head || document.documentElement || document.body;
+    if (targetHead) {
+      targetHead.appendChild(style);
+    }
+  } catch (_) {}
 }
 
 // ==========================================
 // Master Injection Controller
 // ==========================================
 function injectAll() {
-  injectGlobalStyles();
+  try {
+    injectGlobalStyles();
 
-  const isWatch = window.location.pathname.startsWith("/watch");
-  const isShorts = window.location.pathname.startsWith("/shorts");
-
-  if (isWatch) {
-    injectPlayerButton();
-    injectActionButton();
-    const shortsBtn = document.getElementById(SHORTS_BUTTON_ID);
-    if (shortsBtn) shortsBtn.remove();
-  } else if (isShorts) {
-    injectShortsButton();
-    const playerBtn = document.getElementById(PLAYER_BUTTON_ID);
-    if (playerBtn) playerBtn.remove();
-    const actionBtn = document.getElementById(ACTION_BUTTON_ID);
-    if (actionBtn) actionBtn.remove();
-  } else {
-    // Non-video page: clean up buttons
-    const playerBtn = document.getElementById(PLAYER_BUTTON_ID);
-    if (playerBtn) playerBtn.remove();
-    const actionBtn = document.getElementById(ACTION_BUTTON_ID);
-    if (actionBtn) actionBtn.remove();
-    const shortsBtn = document.getElementById(SHORTS_BUTTON_ID);
-    if (shortsBtn) shortsBtn.remove();
-  }
-}
-
-function handleNavigation() {
-  if (window.location.href !== lastUrl) {
-    lastUrl = window.location.href;
-  }
-  // Schedule staggered injection attempts while YouTube finishes rendering components
-  injectAll();
-  setTimeout(injectAll, 300);
-  setTimeout(injectAll, 800);
-  setTimeout(injectAll, 1800);
-}
-
-function initNavigationListener() {
-  injectGlobalStyles();
-
-  window.addEventListener("yt-navigate-finish", handleNavigation);
-  window.addEventListener("yt-page-data-updated", handleNavigation);
-  window.addEventListener("yt-player-updated", handleNavigation);
-  window.addEventListener("spfdone", handleNavigation);
-
-  // Debounced MutationObserver for dynamic YouTube SPA DOM updates
-  observer = new MutationObserver(() => {
-    if (debounceTimer) clearTimeout(debounceTimer);
-    debounceTimer = setTimeout(injectAll, 250);
-  });
-
-  observer.observe(document.body, {
-    childList: true,
-    subtree: true,
-  });
-
-  // Heartbeat periodic timer: ensures buttons re-appear if YouTube reconstructs elements
-  setInterval(() => {
     const isWatch = window.location.pathname.startsWith("/watch");
     const isShorts = window.location.pathname.startsWith("/shorts");
 
     if (isWatch) {
-      const rightControls = getRightControls();
-      const existing = document.getElementById(PLAYER_BUTTON_ID);
-      if (!rightControls || !existing || !rightControls.contains(existing)) {
-        injectPlayerButton();
-      }
+      injectPlayerButton();
+      injectActionButton();
+      const shortsBtn = document.getElementById(SHORTS_BUTTON_ID);
+      if (shortsBtn) shortsBtn.remove();
     } else if (isShorts) {
       injectShortsButton();
+      const playerBtn = document.getElementById(PLAYER_BUTTON_ID);
+      if (playerBtn) playerBtn.remove();
+      const actionBtn = document.getElementById(ACTION_BUTTON_ID);
+      if (actionBtn) actionBtn.remove();
+    } else {
+      // Non-video page: clean up buttons
+      const playerBtn = document.getElementById(PLAYER_BUTTON_ID);
+      if (playerBtn) playerBtn.remove();
+      const actionBtn = document.getElementById(ACTION_BUTTON_ID);
+      if (actionBtn) actionBtn.remove();
+      const shortsBtn = document.getElementById(SHORTS_BUTTON_ID);
+      if (shortsBtn) shortsBtn.remove();
     }
-  }, 1200);
+  } catch (_) {}
+}
 
-  // Initial execution
-  handleNavigation();
+function handleNavigation() {
+  try {
+    if (window.location.href !== lastUrl) {
+      lastUrl = window.location.href;
+    }
+    injectAll();
+    setTimeout(injectAll, 300);
+    setTimeout(injectAll, 800);
+    setTimeout(injectAll, 1800);
+  } catch (_) {}
+}
+
+function initNavigationListener() {
+  try {
+    injectGlobalStyles();
+
+    window.addEventListener("yt-navigate-finish", handleNavigation);
+    window.addEventListener("yt-page-data-updated", handleNavigation);
+    window.addEventListener("yt-player-updated", handleNavigation);
+    window.addEventListener("spfdone", handleNavigation);
+
+    const targetNode = document.body || document.documentElement;
+    if (targetNode) {
+      observer = new MutationObserver(() => {
+        if (debounceTimer) clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(injectAll, 250);
+      });
+
+      observer.observe(targetNode, {
+        childList: true,
+        subtree: true,
+      });
+    }
+
+    // Heartbeat periodic timer: ensures buttons re-appear if YouTube reconstructs elements
+    setInterval(() => {
+      try {
+        const isWatch = window.location.pathname.startsWith("/watch");
+        const isShorts = window.location.pathname.startsWith("/shorts");
+
+        if (isWatch) {
+          const rightControls = getRightControls();
+          const existing = document.getElementById(PLAYER_BUTTON_ID);
+          if (!rightControls || !existing || !rightControls.contains(existing)) {
+            injectPlayerButton();
+          }
+        } else if (isShorts) {
+          injectShortsButton();
+        }
+      } catch (_) {}
+    }, 1500);
+
+    handleNavigation();
+  } catch (_) {}
 }
 
 if (document.readyState === "loading") {
@@ -519,3 +579,4 @@ if (document.readyState === "loading") {
 } else {
   initNavigationListener();
 }
+

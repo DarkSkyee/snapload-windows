@@ -281,40 +281,50 @@ impl BrowserDetector {
             candidates.push(PathBuf::from(&local).join("Microsoft\\Edge\\Application\\msedge.exe"));
         }
 
-        // Look for EdgeCore dynamically in both ProgramFiles and ProgramFiles(x86)
-        let edge_roots = [
-            std::env::var_os("ProgramFiles(x86)"),
-            std::env::var_os("ProgramFiles"),
-            std::env::var_os("LOCALAPPDATA"),
-        ];
-        for root in edge_roots.into_iter().flatten() {
-            let edge_core_dir = PathBuf::from(root).join("Microsoft\\EdgeCore");
-            if let Ok(entries) = std::fs::read_dir(edge_core_dir) {
-                let mut version_dirs: Vec<PathBuf> = entries
-                    .flatten()
-                    .filter(|e| e.path().is_dir())
-                    .map(|e| e.path())
-                    .collect();
-                version_dirs.sort_by(|a, b| b.cmp(a));
-                for v_dir in version_dirs {
-                    let exe = v_dir.join("msedge.exe");
-                    if exe.exists() {
-                        candidates.push(exe);
-                    }
+        let is_valid_edge = |path_str: &str| -> bool {
+            let p = Path::new(path_str);
+            if !p.exists() || !p.is_file() {
+                return false;
+            }
+            let lossy = path_str.to_lowercase();
+            // Disallow EdgeCore, EdgeWebView, or temp stubs
+            if lossy.contains("edgecore") || lossy.contains("edgewebview") {
+                return false;
+            }
+            if let Ok(meta) = p.metadata() {
+                if meta.len() < 100_000 {
+                    return false;
                 }
+            }
+            true
+        };
+
+        if let Some(found) = Self::check_reg_or_file(
+            r"Software\Microsoft\Windows\CurrentVersion\App Paths\msedge.exe",
+            &candidates,
+        ) {
+            if is_valid_edge(&found) {
+                return Some(found);
             }
         }
 
-        Self::check_reg_or_file(
-            r"Software\Microsoft\Windows\CurrentVersion\App Paths\msedge.exe",
+        if let Some(found) = Self::check_reg_or_file(
+            r"SOFTWARE\Clients\StartMenuInternet\Microsoft Edge\shell\open\command",
             &candidates,
-        )
-        .or_else(|| {
-            Self::check_reg_or_file(
-                r"SOFTWARE\Clients\StartMenuInternet\Microsoft Edge\shell\open\command",
-                &candidates,
-            )
-        })
+        ) {
+            if is_valid_edge(&found) {
+                return Some(found);
+            }
+        }
+
+        for c in &candidates {
+            let s = c.to_string_lossy().to_string();
+            if is_valid_edge(&s) {
+                return Some(s);
+            }
+        }
+
+        None
     }
 
     pub fn find_brave() -> Option<String> {

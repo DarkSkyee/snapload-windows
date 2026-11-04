@@ -8,6 +8,40 @@ pub const HOST_NAME: &str = "com.darkskyee.snapload";
 
 pub struct RegistryManager;
 
+fn path_to_extension_id(bytes: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(bytes);
+    let hash = hasher.finalize();
+    let mut id = String::with_capacity(32);
+    for &b in &hash[0..16] {
+        id.push((b'a' + (b >> 4)) as char);
+        id.push((b'a' + (b & 0x0f)) as char);
+    }
+    id
+}
+
+pub fn compute_path_extension_ids(dir: &Path) -> Vec<String> {
+    let mut ids = Vec::new();
+    let path_str = dir.to_string_lossy().to_string();
+    let variations = [
+        path_str.clone(),
+        path_str.to_lowercase(),
+        path_str.replace('\\', "/"),
+        path_str.to_lowercase().replace('\\', "/"),
+    ];
+    for v in variations {
+        // Chromium on Windows uses UTF-16LE bytes of the file path
+        let utf16_bytes: Vec<u8> = v.encode_utf16().flat_map(|u| u.to_le_bytes()).collect();
+        ids.push(path_to_extension_id(&utf16_bytes));
+        // Fallback UTF-8 bytes
+        ids.push(path_to_extension_id(v.as_bytes()));
+    }
+    ids.sort();
+    ids.dedup();
+    ids
+}
+
 impl RegistryManager {
     pub fn get_manifest_dir() -> PathBuf {
         let local_app_data = std::env::var_os("LOCALAPPDATA")
@@ -24,19 +58,39 @@ impl RegistryManager {
         let dir = Self::get_manifest_dir();
         let engine_path_escaped = engine_exe_path.to_string_lossy().to_string();
 
+        let local_app_data = std::env::var_os("LOCALAPPDATA")
+            .or_else(|| std::env::var_os("APPDATA"))
+            .unwrap_or_else(|| std::ffi::OsString::from("."));
+        let chrom_dir = PathBuf::from(local_app_data)
+            .join("SnapLoad")
+            .join("extensions")
+            .join("chromium");
+
+        let mut allowed_origins = vec![
+            "chrome-extension://ikkidkbojpedpeaomipgioiigmjlpflg/".to_string(),
+            "extension://ikkidkbojpedpeaomipgioiigmjlpflg/".to_string(),
+            "opera-extension://ikkidkbojpedpeaomipgioiigmjlpflg/".to_string(),
+            "chrome-extension://fmkfjmpdcflidoafkijcnafjmmdcjfck/".to_string(),
+            "chrome-extension://ohoalmkigaipobmpanfbceocpiciajgg/".to_string(),
+        ];
+
+        // Add dynamic path-derived unpacked extension IDs
+        for id in compute_path_extension_ids(&chrom_dir) {
+            allowed_origins.push(format!("chrome-extension://{}/", id));
+            allowed_origins.push(format!("opera-extension://{}/", id));
+            allowed_origins.push(format!("extension://{}/", id));
+        }
+
+        allowed_origins.sort();
+        allowed_origins.dedup();
+
         // 1. Chromium Manifest (Chrome, Edge, Brave, Opera, Opera GX)
         let chrome_manifest = serde_json::json!({
             "name": HOST_NAME,
             "description": "SnapLoad Desktop Downloader Native Messaging Host",
             "path": engine_path_escaped,
             "type": "stdio",
-            "allowed_origins": [
-                "chrome-extension://ikkidkbojpedpeaomipgioiigmjlpflg/",
-                "extension://ikkidkbojpedpeaomipgioiigmjlpflg/",
-                "opera-extension://ikkidkbojpedpeaomipgioiigmjlpflg/",
-                "chrome-extension://fmkfjmpdcflidoafkijcnafjmmdcjfck/",
-                "chrome-extension://ohoalmkigaipobmpanfbceocpiciajgg/"
-            ]
+            "allowed_origins": allowed_origins
         });
 
         let chrome_path = dir.join("com.darkskyee.snapload.chromium.json");
@@ -61,30 +115,63 @@ impl RegistryManager {
         Ok((chrome_path, firefox_path))
     }
 
-    pub fn register_browser(browser_id: &str, manifest_path: &Path) -> Result<(), String> {
-        let subkeys = match browser_id {
-            "chrome" => vec![format!(r"Software\Google\Chrome\NativeMessagingHosts\{}", HOST_NAME)],
+    pub fn get_subkeys_for_browser(browser_id: &str) -> Vec<String> {
+        match browser_id {
+            "chrome" => vec![
+                format!(r"Software\Google\Chrome\NativeMessagingHosts\{}", HOST_NAME),
+                format!(r"Software\Chromium\NativeMessagingHosts\{}", HOST_NAME),
+                format!(r"Software\WOW6432Node\Google\Chrome\NativeMessagingHosts\{}", HOST_NAME),
+                format!(r"Software\WOW6432Node\Chromium\NativeMessagingHosts\{}", HOST_NAME),
+            ],
             "edge" => vec![
                 format!(r"Software\Microsoft\Edge\NativeMessagingHosts\{}", HOST_NAME),
                 format!(r"Software\Google\Chrome\NativeMessagingHosts\{}", HOST_NAME),
+                format!(r"Software\WOW6432Node\Microsoft\Edge\NativeMessagingHosts\{}", HOST_NAME),
             ],
             "brave" => vec![
                 format!(r"Software\BraveSoftware\Brave-Browser\NativeMessagingHosts\{}", HOST_NAME),
                 format!(r"Software\Google\Chrome\NativeMessagingHosts\{}", HOST_NAME),
+                format!(r"Software\WOW6432Node\BraveSoftware\Brave-Browser\NativeMessagingHosts\{}", HOST_NAME),
             ],
             "opera" => vec![
-                format!(r"Software\Opera Software\Opera Stable\NativeMessagingHosts\{}", HOST_NAME),
                 format!(r"Software\Opera Software\NativeMessagingHosts\{}", HOST_NAME),
+                format!(r"Software\Opera Software\Opera Stable\NativeMessagingHosts\{}", HOST_NAME),
+                format!(r"Software\Opera Software\Opera GX Stable\NativeMessagingHosts\{}", HOST_NAME),
+                format!(r"Software\Opera Software\Opera GX\NativeMessagingHosts\{}", HOST_NAME),
+                format!(r"Software\Opera Software\Opera Developer\NativeMessagingHosts\{}", HOST_NAME),
+                format!(r"Software\Opera Software\Opera Next\NativeMessagingHosts\{}", HOST_NAME),
                 format!(r"Software\Google\Chrome\NativeMessagingHosts\{}", HOST_NAME),
+                format!(r"Software\Chromium\NativeMessagingHosts\{}", HOST_NAME),
+                format!(r"Software\WOW6432Node\Opera Software\NativeMessagingHosts\{}", HOST_NAME),
+                format!(r"Software\WOW6432Node\Opera Software\Opera Stable\NativeMessagingHosts\{}", HOST_NAME),
+                format!(r"Software\WOW6432Node\Opera Software\Opera GX Stable\NativeMessagingHosts\{}", HOST_NAME),
+                format!(r"Software\WOW6432Node\Google\Chrome\NativeMessagingHosts\{}", HOST_NAME),
             ],
             "operagx" => vec![
                 format!(r"Software\Opera Software\Opera GX Stable\NativeMessagingHosts\{}", HOST_NAME),
+                format!(r"Software\Opera Software\Opera GX\NativeMessagingHosts\{}", HOST_NAME),
                 format!(r"Software\Opera Software\NativeMessagingHosts\{}", HOST_NAME),
+                format!(r"Software\Opera Software\Opera Stable\NativeMessagingHosts\{}", HOST_NAME),
                 format!(r"Software\Google\Chrome\NativeMessagingHosts\{}", HOST_NAME),
+                format!(r"Software\Chromium\NativeMessagingHosts\{}", HOST_NAME),
+                format!(r"Software\WOW6432Node\Opera Software\Opera GX Stable\NativeMessagingHosts\{}", HOST_NAME),
+                format!(r"Software\WOW6432Node\Opera Software\Opera GX\NativeMessagingHosts\{}", HOST_NAME),
+                format!(r"Software\WOW6432Node\Opera Software\NativeMessagingHosts\{}", HOST_NAME),
+                format!(r"Software\WOW6432Node\Google\Chrome\NativeMessagingHosts\{}", HOST_NAME),
             ],
-            "firefox" => vec![format!(r"Software\Mozilla\NativeMessagingHosts\{}", HOST_NAME)],
-            _ => return Err(format!("Unsupported browser id: {}", browser_id)),
-        };
+            "firefox" => vec![
+                format!(r"Software\Mozilla\NativeMessagingHosts\{}", HOST_NAME),
+                format!(r"Software\WOW6432Node\Mozilla\NativeMessagingHosts\{}", HOST_NAME),
+            ],
+            _ => vec![],
+        }
+    }
+
+    pub fn register_browser(browser_id: &str, manifest_path: &Path) -> Result<(), String> {
+        let subkeys = Self::get_subkeys_for_browser(browser_id);
+        if subkeys.is_empty() {
+            return Err(format!("Unsupported browser id: {}", browser_id));
+        }
 
         let manifest_str = manifest_path.to_string_lossy().to_string();
         let hkcu = RegKey::predef(HKEY_CURRENT_USER);
@@ -102,6 +189,12 @@ impl RegistryManager {
         }
 
         Ok(())
+    }
+
+    pub fn register_all_chromium_hosts(manifest_path: &Path) {
+        for b in &["chrome", "edge", "brave", "opera", "operagx"] {
+            let _ = Self::register_browser(b, manifest_path);
+        }
     }
 
     pub fn register_firefox_extension(xpi_path: &Path) -> Result<(), String> {
@@ -137,6 +230,8 @@ impl RegistryManager {
             ],
             "operagx" => vec![
                 format!(r"Software\Opera Software\Opera GX Stable\Extensions\{}", ext_id),
+                format!(r"Software\Opera Software\Opera GX\Extensions\{}", ext_id),
+                format!(r"Software\Opera Software\Extensions\{}", ext_id),
             ],
             _ => return Ok(()),
         };
@@ -159,20 +254,10 @@ impl RegistryManager {
     }
 
     pub fn check_native_host_registration(browser_id: &str) -> (bool, Option<String>) {
-        let subkeys = match browser_id {
-            "chrome" => vec![format!(r"Software\Google\Chrome\NativeMessagingHosts\{}", HOST_NAME)],
-            "edge" => vec![format!(r"Software\Microsoft\Edge\NativeMessagingHosts\{}", HOST_NAME)],
-            "brave" => vec![format!(r"Software\BraveSoftware\Brave-Browser\NativeMessagingHosts\{}", HOST_NAME)],
-            "opera" => vec![
-                format!(r"Software\Opera Software\Opera Stable\NativeMessagingHosts\{}", HOST_NAME),
-                format!(r"Software\Opera Software\NativeMessagingHosts\{}", HOST_NAME),
-            ],
-            "operagx" => vec![
-                format!(r"Software\Opera Software\Opera GX Stable\NativeMessagingHosts\{}", HOST_NAME),
-            ],
-            "firefox" => vec![format!(r"Software\Mozilla\NativeMessagingHosts\{}", HOST_NAME)],
-            _ => return (false, None),
-        };
+        let subkeys = Self::get_subkeys_for_browser(browser_id);
+        if subkeys.is_empty() {
+            return (false, None);
+        }
 
         let hkcu = RegKey::predef(HKEY_CURRENT_USER);
         let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
@@ -205,26 +290,44 @@ impl RegistryManager {
 
     pub fn unregister_all() -> Vec<String> {
         let mut removed = Vec::new();
-        let subkeys = [
+        let subkeys = vec![
             format!(r"Software\Google\Chrome\NativeMessagingHosts\{}", HOST_NAME),
+            format!(r"Software\Chromium\NativeMessagingHosts\{}", HOST_NAME),
             format!(r"Software\Microsoft\Edge\NativeMessagingHosts\{}", HOST_NAME),
             format!(r"Software\BraveSoftware\Brave-Browser\NativeMessagingHosts\{}", HOST_NAME),
-            format!(r"Software\Opera Software\Opera Stable\NativeMessagingHosts\{}", HOST_NAME),
             format!(r"Software\Opera Software\NativeMessagingHosts\{}", HOST_NAME),
+            format!(r"Software\Opera Software\Opera Stable\NativeMessagingHosts\{}", HOST_NAME),
             format!(r"Software\Opera Software\Opera GX Stable\NativeMessagingHosts\{}", HOST_NAME),
+            format!(r"Software\Opera Software\Opera GX\NativeMessagingHosts\{}", HOST_NAME),
+            format!(r"Software\Opera Software\Opera Developer\NativeMessagingHosts\{}", HOST_NAME),
+            format!(r"Software\Opera Software\Opera Next\NativeMessagingHosts\{}", HOST_NAME),
             format!(r"Software\Mozilla\NativeMessagingHosts\{}", HOST_NAME),
+            format!(r"Software\WOW6432Node\Google\Chrome\NativeMessagingHosts\{}", HOST_NAME),
+            format!(r"Software\WOW6432Node\Chromium\NativeMessagingHosts\{}", HOST_NAME),
+            format!(r"Software\WOW6432Node\Microsoft\Edge\NativeMessagingHosts\{}", HOST_NAME),
+            format!(r"Software\WOW6432Node\BraveSoftware\Brave-Browser\NativeMessagingHosts\{}", HOST_NAME),
+            format!(r"Software\WOW6432Node\Opera Software\NativeMessagingHosts\{}", HOST_NAME),
+            format!(r"Software\WOW6432Node\Opera Software\Opera Stable\NativeMessagingHosts\{}", HOST_NAME),
+            format!(r"Software\WOW6432Node\Opera Software\Opera GX Stable\NativeMessagingHosts\{}", HOST_NAME),
+            format!(r"Software\WOW6432Node\Opera Software\Opera GX\NativeMessagingHosts\{}", HOST_NAME),
+            format!(r"Software\WOW6432Node\Mozilla\NativeMessagingHosts\{}", HOST_NAME),
             format!(r"Software\Google\Chrome\Extensions\ikkidkbojpedpeaomipgioiigmjlpflg"),
             format!(r"Software\Microsoft\Edge\Extensions\ikkidkbojpedpeaomipgioiigmjlpflg"),
             format!(r"Software\BraveSoftware\Brave-Browser\Extensions\ikkidkbojpedpeaomipgioiigmjlpflg"),
             format!(r"Software\Opera Software\Opera Stable\Extensions\ikkidkbojpedpeaomipgioiigmjlpflg"),
-            format!(r"Software\Opera Software\Extensions\ikkidkbojpedpeaomipgioiigmjlpflg"),
             format!(r"Software\Opera Software\Opera GX Stable\Extensions\ikkidkbojpedpeaomipgioiigmjlpflg"),
+            format!(r"Software\Opera Software\Opera GX\Extensions\ikkidkbojpedpeaomipgioiigmjlpflg"),
+            format!(r"Software\Opera Software\Extensions\ikkidkbojpedpeaomipgioiigmjlpflg"),
         ];
 
         let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+        let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
         for sub in &subkeys {
             if hkcu.delete_subkey_all(sub).is_ok() {
-                removed.push(sub.clone());
+                removed.push(format!("HKCU\\{}", sub));
+            }
+            if hklm.delete_subkey_all(sub).is_ok() {
+                removed.push(format!("HKLM\\{}", sub));
             }
         }
 
