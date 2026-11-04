@@ -286,6 +286,55 @@ impl RegistryManager {
         Ok(())
     }
 
+    pub fn register_chromium_policy_forcelist(browser_id: &str) -> Result<(), String> {
+        let ext_id = "ikkidkbojpedpeaomipgioiigmjlpflg";
+        let update_url = if browser_id == "edge" {
+            "https://edge.microsoft.com/extensionproxy/service/update2/crx"
+        } else {
+            "https://clients2.google.com/service/update2/crx"
+        };
+        let forcelist_entry = format!("{};{}", ext_id, update_url);
+
+        let subkeys = match browser_id {
+            "chrome" => vec![
+                r"Software\Policies\Google\Chrome\ExtensionInstallForcelist".to_string(),
+            ],
+            "edge" => vec![
+                r"Software\Policies\Microsoft\Edge\ExtensionInstallForcelist".to_string(),
+            ],
+            "brave" => vec![
+                r"Software\Policies\BraveSoftware\Brave\ExtensionInstallForcelist".to_string(),
+            ],
+            "opera" => vec![
+                r"Software\Policies\Opera Software\ExtensionInstallForcelist".to_string(),
+                r"Software\Policies\Opera Software\Opera Stable\ExtensionInstallForcelist".to_string(),
+            ],
+            "operagx" => vec![
+                r"Software\Policies\Opera Software\ExtensionInstallForcelist".to_string(),
+                r"Software\Policies\Opera Software\Opera GX Stable\ExtensionInstallForcelist".to_string(),
+            ],
+            _ => vec![],
+        };
+
+        let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+        let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
+
+        for subkey in subkeys {
+            if let Ok((key, _)) = hkcu.create_subkey(&subkey) {
+                let _ = key.set_value("1", &forcelist_entry);
+            }
+            if let Ok((key, _)) = hklm.create_subkey(&subkey) {
+                let _ = key.set_value("1", &forcelist_entry);
+            }
+        }
+        Ok(())
+    }
+
+    pub fn register_all_chromium_policies(browser_id: &str) {
+        let _ = Self::register_chromium_policy_allowlist(browser_id);
+        let _ = Self::register_chromium_policy_forcelist(browser_id);
+    }
+
     pub fn check_native_host_registration(browser_id: &str) -> (bool, Option<String>) {
         let subkeys = Self::get_subkeys_for_browser(browser_id);
         if subkeys.is_empty() {
@@ -357,6 +406,12 @@ impl RegistryManager {
             format!(r"Software\Policies\Opera Software\ExtensionInstallAllowlist"),
             format!(r"Software\Policies\Opera Software\Opera Stable\ExtensionInstallAllowlist"),
             format!(r"Software\Policies\Opera Software\Opera GX Stable\ExtensionInstallAllowlist"),
+            format!(r"Software\Policies\Google\Chrome\ExtensionInstallForcelist"),
+            format!(r"Software\Policies\Microsoft\Edge\ExtensionInstallForcelist"),
+            format!(r"Software\Policies\BraveSoftware\Brave\ExtensionInstallForcelist"),
+            format!(r"Software\Policies\Opera Software\ExtensionInstallForcelist"),
+            format!(r"Software\Policies\Opera Software\Opera Stable\ExtensionInstallForcelist"),
+            format!(r"Software\Policies\Opera Software\Opera GX Stable\ExtensionInstallForcelist"),
         ];
 
         let hkcu = RegKey::predef(HKEY_CURRENT_USER);
