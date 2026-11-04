@@ -198,8 +198,12 @@ body {
   gap: 16px;
 }
 
+.hidden {
+  display: none !important;
+}
+
 .wizard-step.hidden {
-  display: none;
+  display: none !important;
 }
 
 .section-header {
@@ -1451,17 +1455,17 @@ h2 {
 }
 
 .splash-logo-svg {
-  width: 52px;
-  height: 52px;
+  width: 66px;
+  height: 66px;
+  filter: drop-shadow(0 4px 12px rgba(0, 242, 254, 0.25));
 }
 
-.splash-arrow-stem,
-.splash-arrow-head {
+.splash-arrow {
   animation: arrowGlide 1.6s ease-in-out infinite;
 }
 
-.splash-energy-dot {
-  animation: dotEnergy 1.6s ease-in-out infinite;
+.splash-s-curve {
+  animation: dotEnergy 2.2s ease-in-out infinite;
 }
 
 .splash-brand-text {
