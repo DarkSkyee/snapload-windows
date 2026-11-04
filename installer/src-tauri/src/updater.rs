@@ -31,9 +31,20 @@ pub struct SetupUpdateInfo {
     pub error: Option<String>,
 }
 
+const EMBEDDED_MANIFEST: &str = include_str!("../../../release_manifest.json");
+
 pub struct UpdateChecker;
 
 impl UpdateChecker {
+    pub fn cleanup_old_setup_binary() {
+        if let Ok(current) = std::env::current_exe() {
+            let old_exe = current.with_extension("exe.old");
+            if old_exe.exists() {
+                let _ = std::fs::remove_file(old_exe);
+            }
+        }
+    }
+
     fn get_app_bin_dir() -> Option<PathBuf> {
         let local_app_data = std::env::var_os("LOCALAPPDATA")?;
         let mut path = PathBuf::from(local_app_data);
@@ -61,7 +72,7 @@ impl UpdateChecker {
                 }
             }
         }
-        None
+        serde_json::from_str(EMBEDDED_MANIFEST).ok()
     }
 
     pub fn compute_file_hash(path: &Path) -> Result<String, std::io::Error> {
@@ -265,12 +276,13 @@ impl UpdateChecker {
     pub async fn check_setup_update() -> SetupUpdateInfo {
         let current_version = env!("CARGO_PKG_VERSION").to_string();
         let token = Self::get_github_token().await;
+        let user_agent = format!("SnapLoad-Setup/{}", env!("CARGO_PKG_VERSION"));
 
         let mut cmd = tokio::process::Command::new("curl.exe");
         #[cfg(windows)]
         cmd.creation_flags(0x08000000);
         cmd.args(["-sL", "--connect-timeout", "6", "--max-time", "15"]);
-        cmd.args(["-H", "User-Agent: SnapLoad-Setup/1.0.0"]);
+        cmd.args(["-H", &format!("User-Agent: {}", user_agent)]);
         cmd.args(["-H", "Accept: application/vnd.github.v3+json"]);
         if let Some(ref tok) = token {
             cmd.args(["-H", &format!("Authorization: Bearer {}", tok)]);
@@ -309,41 +321,53 @@ impl UpdateChecker {
             }
         };
 
-        if !output.status.success() {
-            return SetupUpdateInfo {
-                current_version: current_version.clone(),
-                latest_version: current_version,
-                update_available: false,
-                release_name: String::new(),
-                release_notes: String::new(),
-                download_url: None,
-                asset_url: None,
-                published_at: None,
-                file_size_bytes: None,
-                error: Some("GitHub API request returned non-zero exit code".to_string()),
-            };
-        }
-
         let json_str = String::from_utf8_lossy(&output.stdout);
-        let val: serde_json::Value = match serde_json::from_str(&json_str) {
-            Ok(v) => v,
-            Err(e) => {
-                return SetupUpdateInfo {
-                    current_version: current_version.clone(),
-                    latest_version: current_version,
-                    update_available: false,
-                    release_name: String::new(),
-                    release_notes: String::new(),
-                    download_url: None,
-                    asset_url: None,
-                    published_at: None,
-                    file_size_bytes: None,
-                    error: Some(format!("Failed to parse release JSON: {}", e)),
-                };
-            }
-        };
+        let val: serde_json::Value = serde_json::from_str(&json_str).unwrap_or(serde_json::Value::Null);
 
-        if let Some(msg) = val.get("message").and_then(|m| m.as_str()) {
+        // If GitHub releases API returned an error message (such as "Not Found" for private repo)
+        // or curl failed, attempt fallback check via raw manifest on main branch
+        if val.get("message").is_some() || !output.status.success() {
+            let mut manifest_cmd = tokio::process::Command::new("curl.exe");
+            #[cfg(windows)]
+            manifest_cmd.creation_flags(0x08000000);
+            manifest_cmd.args(["-sL", "--connect-timeout", "6", "--max-time", "12"]);
+            manifest_cmd.args(["-H", &format!("User-Agent: {}", user_agent)]);
+            if let Some(ref tok) = token {
+                manifest_cmd.args(["-H", &format!("Authorization: Bearer {}", tok)]);
+            }
+            manifest_cmd.arg("https://raw.githubusercontent.com/DarkSkyee/snapload-windows/main/release_manifest.json");
+
+            if let Ok(Ok(man_out)) = timeout(Duration::from_secs(14), manifest_cmd.output()).await {
+                if man_out.status.success() {
+                    let man_str = String::from_utf8_lossy(&man_out.stdout);
+                    if let Ok(mv) = serde_json::from_str::<serde_json::Value>(&man_str) {
+                        if let Some(ver) = mv.get("version").and_then(|v| v.as_str()) {
+                            let clean_latest = ver.trim_start_matches('v').trim_start_matches('V').to_string();
+                            let is_newer = Self::compare_versions(&clean_latest, &current_version) == std::cmp::Ordering::Greater;
+                            return SetupUpdateInfo {
+                                current_version: current_version.clone(),
+                                latest_version: clean_latest.clone(),
+                                update_available: is_newer,
+                                release_name: format!("SnapLoad Windows {}", clean_latest),
+                                release_notes: "Updated release build available from repository manifest.".to_string(),
+                                download_url: Some("https://github.com/DarkSkyee/snapload-windows/releases/latest/download/snapload-setup.exe".to_string()),
+                                asset_url: None,
+                                published_at: None,
+                                file_size_bytes: None,
+                                error: None,
+                            };
+                        }
+                    }
+                }
+            }
+
+            let msg = val.get("message").and_then(|m| m.as_str()).unwrap_or("Request failed");
+            let friendly_err = if msg.eq_ignore_ascii_case("Not Found") {
+                "No published releases found on GitHub (Repository may be private or release not published)".to_string()
+            } else {
+                format!("GitHub API message: {}", msg)
+            };
+
             return SetupUpdateInfo {
                 current_version: current_version.clone(),
                 latest_version: current_version,
@@ -354,7 +378,7 @@ impl UpdateChecker {
                 asset_url: None,
                 published_at: None,
                 file_size_bytes: None,
-                error: Some(format!("GitHub API message: {}", msg)),
+                error: Some(friendly_err),
             };
         }
 
@@ -450,14 +474,22 @@ impl UpdateChecker {
     ) -> Result<String, String> {
         let temp_dir = std::env::temp_dir().join("SnapLoadUpdate");
         let _ = tokio::fs::create_dir_all(&temp_dir).await;
-        let target_path = temp_dir.join("snapload-setup-latest.exe");
 
-        // Remove existing target file if present
-        let _ = tokio::fs::remove_file(&target_path).await;
+        let clean_tag = tag
+            .as_deref()
+            .unwrap_or("latest")
+            .trim_start_matches('v')
+            .trim_start_matches('V');
+        let staging_filename = format!("snapload-setup-staging-{}-{}.exe", clean_tag, std::process::id());
+        let staging_path = temp_dir.join(&staging_filename);
+
+        // Remove existing staging file if present
+        let _ = tokio::fs::remove_file(&staging_path).await;
 
         let token = Self::get_github_token().await;
         let mut download_success = false;
         let mut last_err = String::new();
+        let user_agent = format!("SnapLoad-Setup/{}", env!("CARGO_PKG_VERSION"));
 
         // Strategy 1: Asset API if asset_url and token are present
         if let (Some(ref a_url), Some(ref tok)) = (&asset_url, &token) {
@@ -467,12 +499,12 @@ impl UpdateChecker {
             cmd.args(["-sL", "--connect-timeout", "10", "--max-time", "120"]);
             cmd.args(["-H", &format!("Authorization: Bearer {}", tok)]);
             cmd.args(["-H", "Accept: application/octet-stream"]);
-            cmd.args(["-H", "User-Agent: SnapLoad-Setup/1.0.0"]);
-            cmd.args(["-o", target_path.to_str().unwrap()]);
+            cmd.args(["-H", &format!("User-Agent: {}", user_agent)]);
+            cmd.args(["-o", staging_path.to_str().unwrap()]);
             cmd.arg(a_url);
 
             if let Ok(Ok(status)) = timeout(Duration::from_secs(125), cmd.status()).await {
-                if status.success() && Self::validate_exe(&target_path) {
+                if status.success() && Self::validate_exe(&staging_path) {
                     download_success = true;
                 } else {
                     last_err = "Asset API download failed or produced invalid file".to_string();
@@ -502,7 +534,7 @@ impl UpdateChecker {
                 if let Ok(Ok(status)) = timeout(Duration::from_secs(125), cmd.status()).await {
                     let downloaded = temp_dir.join("snapload-setup.exe");
                     if status.success() && Self::validate_exe(&downloaded) {
-                        let _ = tokio::fs::rename(&downloaded, &target_path).await;
+                        let _ = tokio::fs::rename(&downloaded, &staging_path).await;
                         download_success = true;
                     } else {
                         last_err = "gh release download failed or produced invalid file".to_string();
@@ -518,15 +550,15 @@ impl UpdateChecker {
                 #[cfg(windows)]
                 cmd.creation_flags(0x08000000);
                 cmd.args(["-sL", "--connect-timeout", "10", "--max-time", "120"]);
-                cmd.args(["-H", "User-Agent: SnapLoad-Setup/1.0.0"]);
+                cmd.args(["-H", &format!("User-Agent: {}", user_agent)]);
                 if let Some(ref tok) = token {
                     cmd.args(["-H", &format!("Authorization: Bearer {}", tok)]);
                 }
-                cmd.args(["-o", target_path.to_str().unwrap()]);
+                cmd.args(["-o", staging_path.to_str().unwrap()]);
                 cmd.arg(d_url);
 
                 if let Ok(Ok(status)) = timeout(Duration::from_secs(125), cmd.status()).await {
-                    if status.success() && Self::validate_exe(&target_path) {
+                    if status.success() && Self::validate_exe(&staging_path) {
                         download_success = true;
                     } else {
                         last_err = "Direct download failed or produced invalid file".to_string();
@@ -535,20 +567,54 @@ impl UpdateChecker {
             }
         }
 
-        if !download_success || !Self::validate_exe(&target_path) {
+        if !download_success || !Self::validate_exe(&staging_path) {
             return Err(format!(
                 "Failed to download valid setup executable: {}",
                 if last_err.is_empty() { "Network or file error" } else { &last_err }
             ));
         }
 
-        // Launch the updated setup in a detached process
+        // Clean up older staging files in temp_dir
+        if let Ok(mut entries) = tokio::fs::read_dir(&temp_dir).await {
+            while let Ok(Some(entry)) = entries.next_entry().await {
+                let path = entry.path();
+                if path != staging_path && path.file_name().and_then(|n| n.to_str()).map_or(false, |s| s.starts_with("snapload-setup-staging-")) {
+                    let _ = tokio::fs::remove_file(&path).await;
+                }
+            }
+        }
+
+        // Atomic In-Place Self-Replacement:
+        // Attempt to replace the running executable so the user's local file (Downloads, Desktop) is updated!
+        let mut launch_target = staging_path.clone();
+
+        if let Ok(current_exe) = std::env::current_exe() {
+            let is_in_temp = current_exe.starts_with(&temp_dir);
+            if !is_in_temp && current_exe.is_file() {
+                let backup_exe = current_exe.with_extension("exe.old");
+                let _ = std::fs::remove_file(&backup_exe);
+
+                // On Windows NT, rename of a running executable succeeds!
+                if std::fs::rename(&current_exe, &backup_exe).is_ok() {
+                    // Copy verified staging executable into original current_exe location
+                    if std::fs::copy(&staging_path, &current_exe).is_ok() {
+                        launch_target = current_exe;
+                    } else {
+                        // Rollback rename if copy fails
+                        let _ = std::fs::rename(&backup_exe, &current_exe);
+                    }
+                }
+            }
+        }
+
+        // Launch the updated setup in a detached process with --updated flag
         #[cfg(windows)]
         {
             use std::os::windows::process::CommandExt;
-            let mut launch_cmd = std::process::Command::new(&target_path);
+            let mut launch_cmd = std::process::Command::new(&launch_target);
+            launch_cmd.arg("--updated");
             launch_cmd.creation_flags(0x00000200); // CREATE_NEW_PROCESS_GROUP
-            launch_cmd.spawn().map_err(|e| format!("Failed to launch new setup: {}", e))?;
+            launch_cmd.spawn().map_err(|e| format!("Failed to launch updated setup: {}", e))?;
         }
 
         Ok("Updated setup launched successfully!".to_string())
@@ -589,5 +655,25 @@ mod tests {
 
         // Test non-existent
         assert!(!UpdateChecker::validate_exe(&dummy_path));
+    }
+
+    #[test]
+    fn test_embedded_manifest_parsing() {
+        let val: Result<serde_json::Value, _> = serde_json::from_str(EMBEDDED_MANIFEST);
+        assert!(val.is_ok(), "Embedded manifest must be valid JSON");
+        let manifest = val.unwrap();
+        assert_eq!(manifest["version"], "1.0.0");
+        assert!(manifest["artifacts"]["setup"]["file"].is_string());
+    }
+
+    #[test]
+    fn test_cleanup_old_setup_binary() {
+        if let Ok(current) = std::env::current_exe() {
+            let old_exe = current.with_extension("exe.old");
+            let _ = std::fs::write(&old_exe, b"test-old-content");
+            assert!(old_exe.exists());
+            UpdateChecker::cleanup_old_setup_binary();
+            assert!(!old_exe.exists(), "Old binary must be deleted cleanly");
+        }
     }
 }
