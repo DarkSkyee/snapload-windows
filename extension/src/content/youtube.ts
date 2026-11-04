@@ -8,6 +8,39 @@ let observer: MutationObserver | null = null;
 let lastUrl = "";
 let debounceTimer: any = null;
 
+/**
+ * Returns a canonical, clean YouTube URL free of playlist index, timestamps, and tracking tags.
+ */
+function getCanonicalVideoUrl(): string {
+  try {
+    const url = new URL(window.location.href);
+    if (url.pathname.startsWith("/watch")) {
+      const v = url.searchParams.get("v");
+      if (v) {
+        return `https://www.youtube.com/watch?v=${encodeURIComponent(v)}`;
+      }
+    } else if (url.pathname.startsWith("/shorts/")) {
+      const shortId = url.pathname.replace(/^\/shorts\//, "").split("/")[0].split("?")[0];
+      if (shortId) {
+        return `https://www.youtube.com/shorts/${encodeURIComponent(shortId)}`;
+      }
+    }
+  } catch (_) {}
+  return window.location.href;
+}
+
+/**
+ * Locates YouTube player right-side controls container using progressive fallbacks.
+ */
+function getRightControls(): Element | null {
+  return (
+    document.querySelector("#movie_player .ytp-right-controls") ||
+    document.querySelector(".html5-video-player .ytp-right-controls") ||
+    document.querySelector(".ytp-chrome-controls .ytp-right-controls") ||
+    document.querySelector(".ytp-right-controls")
+  );
+}
+
 // ==========================================
 // 1. YouTube Player Control Bar Button (SponsorBlock style)
 // ==========================================
@@ -55,7 +88,7 @@ function createPlayerButton(): HTMLElement {
     btn.classList.add("downloading");
     btn.setAttribute("title", "Initiating SnapLoad...");
 
-    const videoUrl = window.location.href;
+    const videoUrl = getCanonicalVideoUrl();
     console.log("[SnapLoad Player] Starting download for:", videoUrl);
 
     api.runtime.sendMessage({
@@ -86,19 +119,22 @@ function createPlayerButton(): HTMLElement {
 }
 
 function injectPlayerButton() {
-  if (document.getElementById(PLAYER_BUTTON_ID)) {
-    return;
-  }
-
-  // Look for YouTube player right controls (settings, subtitles, etc.)
-  const rightControls = document.querySelector(".ytp-chrome-controls .ytp-right-controls");
+  const rightControls = getRightControls();
   if (!rightControls) {
     return;
   }
 
+  const existing = document.getElementById(PLAYER_BUTTON_ID);
+  if (existing && rightControls.contains(existing)) {
+    return;
+  }
+  if (existing) {
+    existing.remove();
+  }
+
   const btn = createPlayerButton();
 
-  // Insert before settings button or subtitles button if possible, else prepend
+  // SponsorBlock positioning: place before settings or subtitles, or fallback to firstChild
   const settingsBtn = rightControls.querySelector(".ytp-settings-button");
   const subBtn = rightControls.querySelector(".ytp-subtitles-button");
   const target = settingsBtn || subBtn || rightControls.firstChild;
@@ -109,11 +145,11 @@ function injectPlayerButton() {
     rightControls.appendChild(btn);
   }
 
-  console.log("[SnapLoad] Injected player control bar button.");
+  console.log("[SnapLoad] Injected player control bar button into controls.");
 }
 
 // ==========================================
-// 2. Action Bar Pill Button (Below title)
+// 2. Action Bar Pill Button (Below video title)
 // ==========================================
 function createActionButton(): HTMLElement {
   const container = document.createElement("div");
@@ -148,7 +184,7 @@ function createActionButton(): HTMLElement {
     e.preventDefault();
     e.stopPropagation();
 
-    const videoUrl = window.location.href;
+    const videoUrl = getCanonicalVideoUrl();
     console.log("[SnapLoad Action] Triggering download for:", videoUrl);
 
     btn.classList.add("downloading");
@@ -175,10 +211,6 @@ function createActionButton(): HTMLElement {
 }
 
 function injectActionButton() {
-  if (document.getElementById(ACTION_BUTTON_ID)) {
-    return;
-  }
-
   const candidates = [
     "#top-level-buttons-computed",
     "#actions-inner #menu",
@@ -196,28 +228,25 @@ function injectActionButton() {
     }
   }
 
-  if (targetElement) {
-    const button = createActionButton();
-    targetElement.appendChild(button);
-    console.log("[SnapLoad] Injected action bar button.");
+  if (!targetElement) return;
+
+  const existing = document.getElementById(ACTION_BUTTON_ID);
+  if (existing && targetElement.contains(existing)) {
+    return;
   }
+  if (existing) {
+    existing.remove();
+  }
+
+  const button = createActionButton();
+  targetElement.appendChild(button);
+  console.log("[SnapLoad] Injected action bar button.");
 }
 
 // ==========================================
 // 3. YouTube Shorts Button
 // ==========================================
-function injectShortsButton() {
-  if (document.getElementById(SHORTS_BUTTON_ID)) {
-    return;
-  }
-
-  const activeReel = document.querySelector("ytd-reel-video-renderer[is-active] #actions") ||
-                     document.querySelector(".ytd-reel-player-overlay-renderer #actions");
-
-  if (!activeReel) {
-    return;
-  }
-
+function createShortsButton(): HTMLElement {
   const container = document.createElement("div");
   container.id = SHORTS_BUTTON_ID;
   container.className = "snapload-shorts-container";
@@ -240,7 +269,7 @@ function injectShortsButton() {
     e.preventDefault();
     e.stopPropagation();
 
-    const videoUrl = window.location.href;
+    const videoUrl = getCanonicalVideoUrl();
     const label = container.querySelector(".snapload-shorts-label");
     if (label) label.textContent = "Sending...";
 
@@ -259,11 +288,35 @@ function injectShortsButton() {
     });
   });
 
+  return container;
+}
+
+function injectShortsButton() {
+  const activeReel =
+    document.querySelector("ytd-reel-video-renderer[is-active] #actions") ||
+    document.querySelector("ytd-reel-player-overlay-renderer[is-active] #actions") ||
+    document.querySelector("ytd-reel-video-renderer[is-active] #actions-inner") ||
+    document.querySelector(".ytd-reel-player-overlay-renderer #actions");
+
+  if (!activeReel) {
+    return;
+  }
+
+  const existing = document.getElementById(SHORTS_BUTTON_ID);
+  if (existing && activeReel.contains(existing)) {
+    return;
+  }
+  if (existing) {
+    existing.remove();
+  }
+
+  const container = createShortsButton();
   activeReel.insertBefore(container, activeReel.firstChild);
+  console.log("[SnapLoad] Injected Shorts action button.");
 }
 
 // ==========================================
-// Inject Scoped Styles for All SnapLoad Buttons
+// Scoped Styles for All SnapLoad Buttons
 // ==========================================
 function injectGlobalStyles() {
   if (document.getElementById("snapload-injected-styles")) return;
@@ -381,7 +434,7 @@ function injectGlobalStyles() {
 }
 
 // ==========================================
-// Master Injection Function
+// Master Injection Controller
 // ==========================================
 function injectAll() {
   injectGlobalStyles();
@@ -417,9 +470,9 @@ function handleNavigation() {
   }
   // Schedule staggered injection attempts while YouTube finishes rendering components
   injectAll();
-  setTimeout(injectAll, 400);
-  setTimeout(injectAll, 1000);
-  setTimeout(injectAll, 2000);
+  setTimeout(injectAll, 300);
+  setTimeout(injectAll, 800);
+  setTimeout(injectAll, 1800);
 }
 
 function initNavigationListener() {
@@ -427,11 +480,13 @@ function initNavigationListener() {
 
   window.addEventListener("yt-navigate-finish", handleNavigation);
   window.addEventListener("yt-page-data-updated", handleNavigation);
+  window.addEventListener("yt-player-updated", handleNavigation);
+  window.addEventListener("spfdone", handleNavigation);
 
   // Debounced MutationObserver for dynamic YouTube SPA DOM updates
   observer = new MutationObserver(() => {
     if (debounceTimer) clearTimeout(debounceTimer);
-    debounceTimer = setTimeout(injectAll, 300);
+    debounceTimer = setTimeout(injectAll, 250);
   });
 
   observer.observe(document.body, {
@@ -439,14 +494,23 @@ function initNavigationListener() {
     subtree: true,
   });
 
-  // Fallback periodic timer in case YouTube reconstructs video controls without mutations on body
+  // Heartbeat periodic timer: ensures buttons re-appear if YouTube reconstructs elements
   setInterval(() => {
-    if (window.location.pathname.startsWith("/watch") && !document.getElementById(PLAYER_BUTTON_ID)) {
-      injectPlayerButton();
-    }
-  }, 2000);
+    const isWatch = window.location.pathname.startsWith("/watch");
+    const isShorts = window.location.pathname.startsWith("/shorts");
 
-  // Initial runs
+    if (isWatch) {
+      const rightControls = getRightControls();
+      const existing = document.getElementById(PLAYER_BUTTON_ID);
+      if (!rightControls || !existing || !rightControls.contains(existing)) {
+        injectPlayerButton();
+      }
+    } else if (isShorts) {
+      injectShortsButton();
+    }
+  }, 1200);
+
+  // Initial execution
   handleNavigation();
 }
 

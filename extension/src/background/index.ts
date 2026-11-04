@@ -38,11 +38,18 @@ function getOrCreateNativePort(): chrome.runtime.Port | null {
       nativePort = null;
       isConnecting = false;
 
+      let friendlyError = err || "SnapLoad Engine disconnected";
+      if (friendlyError.toLowerCase().includes("not found")) {
+        friendlyError = "SnapLoad Host not registered in Windows Registry. Please run SnapLoad Setup.";
+      } else if (friendlyError.toLowerCase().includes("forbidden") || friendlyError.toLowerCase().includes("denied")) {
+        friendlyError = "Extension ID not allowed in Native Messaging host. Run SnapLoad Setup.";
+      }
+
       // Mark all queued or running downloads as failed
       for (const dl of activeDownloads.values()) {
         if (!dl.completed && !dl.error) {
           dl.status = "Failed";
-          dl.error = err || "SnapLoad Engine disconnected";
+          dl.error = friendlyError;
         }
       }
       updateBadge();
@@ -50,7 +57,11 @@ function getOrCreateNativePort(): chrome.runtime.Port | null {
       // Broadcast disconnect to any listening popups
       api.runtime.sendMessage({
         type: "ENGINE_STATUS",
-        payload: { connected: false, error: err },
+        payload: { connected: false, error: friendlyError },
+      }).catch(() => {});
+      api.runtime.sendMessage({
+        type: "ENGINE_EVENT",
+        payload: { type: "download_failed" },
       }).catch(() => {});
     });
 
