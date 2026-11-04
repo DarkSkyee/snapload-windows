@@ -136,6 +136,38 @@ impl SetupManager {
         }
     }
 
+    pub fn cleanup_desktop_shortcuts() -> Vec<String> {
+        let mut logs = Vec::new();
+        let mut desktop_dirs = Vec::new();
+        if let Some(user) = std::env::var_os("USERPROFILE") {
+            let u_path = PathBuf::from(&user);
+            desktop_dirs.push(u_path.join("Desktop"));
+            desktop_dirs.push(u_path.join("OneDrive").join("Desktop"));
+        }
+        if let Some(public) = std::env::var_os("PUBLIC") {
+            desktop_dirs.push(PathBuf::from(public).join("Desktop"));
+        }
+
+        for d in desktop_dirs {
+            if !d.exists() {
+                continue;
+            }
+            if let Ok(entries) = std::fs::read_dir(&d) {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                        if name.starts_with("SnapLoad") && name.ends_with(".lnk") {
+                            if Self::force_remove_file(&path) {
+                                logs.push(format!("Removed desktop shortcut: {:?}", path));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        logs
+    }
+
     pub fn create_or_update_browser_shortcut(
         browser_id: &str,
         exe_path: &str,
@@ -145,9 +177,8 @@ impl SetupManager {
             return Ok("Firefox does not require command-line extension flags".to_string());
         }
 
-        let user_desktop = std::env::var_os("USERPROFILE")
-            .map(|u| PathBuf::from(u).join("Desktop"))
-            .unwrap_or_else(|| PathBuf::from("."));
+        // Clean up any legacy or leftover Desktop shortcuts so no browser shortcuts are created on Desktop
+        let _ = Self::cleanup_desktop_shortcuts();
 
         let start_menu_programs = std::env::var_os("APPDATA")
             .map(|u| PathBuf::from(u).join(r"Microsoft\Windows\Start Menu\Programs"));
@@ -162,7 +193,6 @@ impl SetupManager {
             _ => "Browser",
         };
 
-        let target_lnk = user_desktop.join(format!("SnapLoad ({}).lnk", browser_name));
         let sm_lnk = start_menu_programs
             .as_ref()
             .map(|sm| sm.join(format!("SnapLoad ({}).lnk", browser_name)))
@@ -176,7 +206,7 @@ impl SetupManager {
         let ps_script = format!(
             "$ws = New-Object -ComObject WScript.Shell; \
              $flag = '--load-extension=\"{}\" --disable-features=DisableLoadExtensionCommandLineSwitch'; \
-             $dedicated = @('{}', '{}'); \
+             $dedicated = @('{}'); \
              foreach ($p in $dedicated) {{ \
                  if ($p -and $p.Length -gt 0) {{ \
                      try {{ \
@@ -192,8 +222,6 @@ impl SetupManager {
              $cleanTarget = '{}'.ToLower(); \
              $exeName = '{}'.ToLower(); \
              $dirs = @( \
-                 \"$HOME\\Desktop\", \
-                 \"$env:PUBLIC\\Desktop\", \
                  \"$env:APPDATA\\Microsoft\\Windows\\Start Menu\\Programs\", \
                  \"$env:ProgramData\\Microsoft\\Windows\\Start Menu\\Programs\", \
                  \"$env:APPDATA\\Microsoft\\Internet Explorer\\Quick Launch\", \
@@ -232,7 +260,6 @@ impl SetupManager {
                  }} \
              }}",
             ext_str.replace('\'', "''"),
-            target_lnk.to_string_lossy().replace('\'', "''"),
             sm_lnk.to_string_lossy().replace('\'', "''"),
             exe_path.replace('\'', "''"),
             exe_path.replace('\'', "''"),
@@ -247,7 +274,7 @@ impl SetupManager {
         cmd.args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", &ps_script]);
         let _ = cmd.output();
 
-        Ok(format!("Configured desktop, Start Menu, and Taskbar shortcuts for {}", browser_name))
+        Ok(format!("Configured Start Menu and Taskbar shortcuts for {}", browser_name))
     }
 
     pub fn deploy_to_browser_profiles(chrome_unpacked_dir: &Path) -> Vec<String> {
@@ -287,6 +314,9 @@ impl SetupManager {
     pub async fn run_install(options: InstallOptions) -> Result<InstallResult, String> {
         let mut logs = Vec::new();
         logs.push("Initializing SnapLoad desktop environment...".to_string());
+
+        let cleaned_sc = Self::cleanup_desktop_shortcuts();
+        logs.extend(cleaned_sc);
 
         let bin_dir = Self::get_bin_dir();
         let _logs_dir = Self::get_logs_dir();
@@ -1151,6 +1181,24 @@ impl SetupManager {
             }
         }
 
+        // 6. Clean up any leftover shortcuts from Desktop and Start Menu
+        let cleaned_sc = Self::cleanup_desktop_shortcuts();
+        logs.extend(cleaned_sc);
+
+        if let Some(sm) = std::env::var_os("APPDATA").map(|u| PathBuf::from(u).join(r"Microsoft\Windows\Start Menu\Programs")) {
+            if let Ok(entries) = std::fs::read_dir(&sm) {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                        if name.starts_with("SnapLoad") && name.ends_with(".lnk") {
+                            let _ = Self::force_remove_file(&path);
+                            logs.push(format!("Removed Start Menu shortcut: {:?}", path));
+                        }
+                    }
+                }
+            }
+        }
+
         logs.push("SnapLoad components and browser extensions uninstalled. Downloaded media preserved.".to_string());
         Ok(logs)
     }
@@ -1503,10 +1551,10 @@ impl SetupManager {
                 logs.push(format!("Configured permanent extension profile preferences for: {:?}", prof));
             }
 
-            // Create or update Desktop and Start Menu shortcuts with --load-extension
+            // Create or update Start Menu shortcuts with --load-extension
             match Self::create_or_update_browser_shortcut(browser_id, &exe_path, &chrome_unpacked) {
                 Ok(msg) => logs.push(msg),
-                Err(e) => logs.push(format!("Desktop shortcut note: {}", e)),
+                Err(e) => logs.push(format!("Shortcut note: {}", e)),
             }
 
             let ext_url = match browser_id {
@@ -1574,7 +1622,7 @@ impl SetupManager {
             format!("SnapLoad extension prompt opened in {}! Click 'Add' to activate.", name)
         } else {
             format!(
-                "Browser {} launched with extension parameters! Extensions page ({}) and YouTube opened. Desktop shortcut created & folder path copied to clipboard.",
+                "Browser {} launched with extension parameters! Extensions page ({}) and YouTube opened. Extension folder path copied to clipboard.",
                 name, ext_url_for_msg
             )
         };
@@ -1820,6 +1868,24 @@ mod tests {
     }
 
     #[test]
+    fn test_cleanup_desktop_shortcuts_does_not_panic() {
+        let logs = SetupManager::cleanup_desktop_shortcuts();
+        let _ = logs;
+    }
+
+    #[test]
+    fn test_create_shortcut_does_not_create_desktop_shortcut() {
+        let dummy = PathBuf::from("dummy");
+        let res = SetupManager::create_or_update_browser_shortcut("opera", "non_existent_opera_test_path.exe", &dummy);
+        assert!(res.is_ok());
+        let user_desktop = std::env::var_os("USERPROFILE").map(|u| PathBuf::from(u).join("Desktop"));
+        if let Some(desktop) = user_desktop {
+            let snapload_opera_lnk = desktop.join("SnapLoad (Opera).lnk");
+            assert!(!snapload_opera_lnk.exists(), "Desktop shortcut SnapLoad (Opera).lnk must NOT be created");
+        }
+    }
+
+    #[test]
     fn test_ensure_chromium_ext_deployed_manifest_contents() {
         let res = SetupManager::ensure_chromium_ext_deployed();
         assert!(res.is_ok(), "Failed ensuring chromium ext deployed: {:?}", res);
@@ -1831,3 +1897,4 @@ mod tests {
         assert!(content.contains("SnapLoad"), "manifest must contain SnapLoad");
     }
 }
+
