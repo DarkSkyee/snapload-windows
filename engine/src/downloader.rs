@@ -6,7 +6,7 @@ use crate::protocol::{
     VideoFormat, VideoQuality,
 };
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -44,6 +44,7 @@ struct ActiveDownload {
 #[derive(Clone)]
 pub struct DownloadManager {
     active_downloads: Arc<Mutex<HashMap<String, ActiveDownload>>>,
+    cancelled_ids: Arc<Mutex<HashSet<String>>>,
 }
 
 impl Default for DownloadManager {
@@ -56,6 +57,7 @@ impl DownloadManager {
     pub fn new() -> Self {
         Self {
             active_downloads: Arc::new(Mutex::new(HashMap::new())),
+            cancelled_ids: Arc::new(Mutex::new(HashSet::new())),
         }
     }
 
@@ -148,6 +150,7 @@ impl DownloadManager {
     }
 
     pub async fn cancel_download(&self, download_id: &str) -> bool {
+        self.cancelled_ids.lock().await.insert(download_id.to_string());
         let mut map = self.active_downloads.lock().await;
         if let Some(mut active) = map.remove(download_id) {
             Logger::info(&format!(
@@ -157,17 +160,28 @@ impl DownloadManager {
             if let Some(tx) = active.cancel_tx.take() {
                 let _ = tx.send(());
             }
-            #[cfg(windows)]
-            {
-                // Force kill process tree on Windows using taskkill
-                let mut cmd = Command::new("taskkill");
-                cmd.args(["/F", "/T", "/PID", &active.child_id.to_string()]);
-                cmd.creation_flags(0x08000000);
-                let _ = cmd.output().await;
+            if active.child_id > 0 {
+                #[cfg(windows)]
+                {
+                    // Force kill process tree on Windows using taskkill
+                    let taskkill_bin = if Path::new(r"C:\Windows\System32\taskkill.exe").exists() {
+                        r"C:\Windows\System32\taskkill.exe"
+                    } else {
+                        "taskkill.exe"
+                    };
+                    let mut cmd = Command::new(taskkill_bin);
+                    cmd.args(["/F", "/T", "/PID", &active.child_id.to_string()]);
+                    cmd.creation_flags(0x08000000);
+                    let _ = cmd.output().await;
+                }
             }
             return true;
         }
-        false
+        true
+    }
+
+    pub async fn is_cancelled(&self, download_id: &str) -> bool {
+        self.cancelled_ids.lock().await.contains(download_id)
     }
 
     pub async fn start_download(
@@ -356,12 +370,20 @@ impl DownloadManager {
             if let Some(dir) = ffmpeg.parent() {
                 args.push("--ffmpeg-location".to_string());
                 args.push(dir.to_string_lossy().to_string());
+            } else {
+                args.push("--ffmpeg-location".to_string());
+                args.push(ffmpeg.to_string_lossy().to_string());
             }
         }
 
         if media_type == MediaType::Video {
             args.push("-f".to_string());
             args.push(video_qual.ytdl_format_selector().to_string());
+            if video_fmt == VideoFormat::Mp4 {
+                // Prioritize AAC audio in MP4 container so downloaded video always plays audio in Windows Media Player
+                args.push("-S".to_string());
+                args.push("ext:mp4:m4a,res".to_string());
+            }
             args.push("--merge-output-format".to_string());
             args.push(video_fmt.extension().to_string());
             args.push("--remux-video".to_string());
@@ -387,6 +409,19 @@ impl DownloadManager {
         cmd.stdin(std::process::Stdio::null());
         cmd.stdout(std::process::Stdio::piped());
         cmd.stderr(std::process::Stdio::piped());
+
+        if self.is_cancelled(&download_id).await {
+            Logger::info(&format!("Download {} was cancelled before starting", download_id));
+            Self::cleanup_incomplete_files(&output_dir, &unique_prefix);
+            let _ = response_tx
+                .send(EngineResponse::ok(
+                    &download_id,
+                    ResponseType::DownloadCancelled,
+                    serde_json::json!({ "download_id": download_id }),
+                ))
+                .await;
+            return;
+        }
 
         let mut child = match cmd.spawn() {
             Ok(c) => c,
@@ -455,20 +490,45 @@ impl DownloadManager {
         });
 
         let wait_result = tokio::select! {
-            res = child.wait() => Ok(res),
+            biased;
             _ = &mut cancel_rx => {
                 let _ = child.kill().await;
+                stdout_handle.abort();
+                stderr_handle.abort();
                 Err("cancelled")
             }
+            res = child.wait() => Ok(res),
         };
 
-        let _ = stdout_handle.await;
+        if wait_result.is_err() {
+            stdout_handle.abort();
+            stderr_handle.abort();
+        } else {
+            let _ = stdout_handle.await;
+        }
         let stderr_lines = stderr_handle.await.unwrap_or_default();
 
         // Remove from active downloads
         {
             let mut map = self.active_downloads.lock().await;
             map.remove(&download_id);
+        }
+
+        let was_cancelled = wait_result.is_err() || self.is_cancelled(&download_id).await;
+        if was_cancelled {
+            Logger::info(&format!(
+                "Download {} was successfully cancelled",
+                download_id
+            ));
+            Self::cleanup_incomplete_files(&output_dir, &unique_prefix);
+            let _ = response_tx
+                .send(EngineResponse::ok(
+                    &download_id,
+                    ResponseType::DownloadCancelled,
+                    serde_json::json!({ "download_id": download_id }),
+                ))
+                .await;
+            return;
         }
 
         match wait_result {
@@ -619,10 +679,13 @@ impl DownloadManager {
             args.push(cp.to_string_lossy().to_string());
         }
 
-        if let Some(ffmpeg) = ffmpeg_path {
+        if let Some(ref ffmpeg) = ffmpeg_path {
             if let Some(dir) = ffmpeg.parent() {
                 args.push("--ffmpeg-location".to_string());
                 args.push(dir.to_string_lossy().to_string());
+            } else {
+                args.push("--ffmpeg-location".to_string());
+                args.push(ffmpeg.to_string_lossy().to_string());
             }
         }
 
@@ -636,7 +699,21 @@ impl DownloadManager {
         cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
         cmd.stdin(std::process::Stdio::null());
         cmd.stdout(std::process::Stdio::null());
-        cmd.stderr(std::process::Stdio::null());
+        if self.is_cancelled(&download_id).await {
+            Logger::info(&format!(
+                "Fallback audio download {} was cancelled before starting",
+                download_id
+            ));
+            Self::cleanup_incomplete_files(&output_dir, &unique_prefix);
+            let _ = response_tx
+                .send(EngineResponse::ok(
+                    &download_id,
+                    ResponseType::DownloadCancelled,
+                    serde_json::json!({ "download_id": download_id }),
+                ))
+                .await;
+            return;
+        }
 
         let mut child = match cmd.spawn() {
             Ok(c) => c,
@@ -667,16 +744,34 @@ impl DownloadManager {
         }
 
         let wait_result = tokio::select! {
-            res = child.wait() => Ok(res),
+            biased;
             _ = &mut cancel_rx => {
                 let _ = child.kill().await;
                 Err("cancelled")
             }
+            res = child.wait() => Ok(res),
         };
 
         {
             let mut map = self.active_downloads.lock().await;
             map.remove(&download_id);
+        }
+
+        let was_cancelled = wait_result.is_err() || self.is_cancelled(&download_id).await;
+        if was_cancelled {
+            Logger::info(&format!(
+                "Fallback audio download {} was cancelled",
+                download_id
+            ));
+            Self::cleanup_incomplete_files(&output_dir, &unique_prefix);
+            let _ = response_tx
+                .send(EngineResponse::ok(
+                    &download_id,
+                    ResponseType::DownloadCancelled,
+                    serde_json::json!({ "download_id": download_id }),
+                ))
+                .await;
+            return;
         }
 
         match wait_result {

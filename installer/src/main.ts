@@ -513,13 +513,13 @@ async function updateStep3ActiveBrowserCard() {
     if (step3Title) step3Title.textContent = "Ready on YouTube";
     if (step3Desc) step3Desc.textContent = "SnapLoad download buttons appear immediately on video pages.";
   } else {
-    if (guideBrowserDesc) guideBrowserDesc.innerHTML = `<strong>Ważne / Important:</strong> Aby rozszerzenie pozostało na stałe w przeglądarce ${b.name} (również po jej zamknięciu i ponownym uruchomieniu), wykonaj jednorazowo te 3 proste kroki (ścieżka jest już skopiowana do schowka!):`;
-    if (step1Title) step1Title.textContent = "1. Karta Rozszerzeń";
-    if (step1Desc) step1Desc.innerHTML = `Otwórz stronę rozszerzeń w przeglądarce (<code>${extUrl}</code>).`;
-    if (step2Title) step2Title.textContent = "2. Tryb Programisty (Developer mode)";
-    if (step2Desc) step2Desc.innerHTML = `Przełącz suwak <em>Developer mode</em> (PL: <em>Tryb programisty</em>) w prawym górnym rogu na <strong>WŁĄCZONY (ON)</strong>.`;
-    if (step3Title) step3Title.textContent = "3. Załaduj Rozpakowane & Wklej";
-    if (step3Desc) step3Desc.innerHTML = `Kliknij <em>Load unpacked</em> (PL: <em>Załaduj rozpakowane</em>), naciśnij <kbd>Ctrl+V</kbd> w polu folderu i zatwierdź. Gotowe!`;
+    if (guideBrowserDesc) guideBrowserDesc.innerHTML = `<strong>Important:</strong> To ensure the extension stays permanently in ${b.name} (even after restarting the browser), follow these 3 simple steps once (the path is already copied to your clipboard!):`;
+    if (step1Title) step1Title.textContent = "1. Extensions Tab";
+    if (step1Desc) step1Desc.innerHTML = `Open the extensions page in your browser (<code>${extUrl}</code>).`;
+    if (step2Title) step2Title.textContent = "2. Developer Mode";
+    if (step2Desc) step2Desc.innerHTML = `Switch the <em>Developer mode</em> toggle in the top-right corner to <strong>ON</strong>.`;
+    if (step3Title) step3Title.textContent = "3. Load Unpacked & Paste";
+    if (step3Desc) step3Desc.innerHTML = `Click <em>Load unpacked</em>, press <kbd>Ctrl+V</kbd> in the folder selection dialog, and confirm. Done!`;
   }
 }
 
@@ -581,13 +581,13 @@ document.getElementById("btn-auto-install")?.addEventListener("click", async () 
 
     btn.disabled = false;
     btnTitle.textContent = `✓ Extension Configured for ${res.browser_name}!`;
-    btnSubtitle.textContent = "Integracja gotowa • Preferencje profilu skonfigurowane";
+    btnSubtitle.textContent = "Integration ready • Profile preferences configured";
 
     if (statusBox && statusTitle && statusDesc) {
       statusBox.className = "auto-install-status-box success";
       if (statusIcon) statusIcon.textContent = "✓";
-      statusTitle.textContent = `Skonfigurowano ${res.browser_name} dla SnapLoad!`;
-      statusDesc.innerHTML = `${res.message}<br><br>💡 <strong>Wskazówka na stałe:</strong> W otwartej karcie rozszerzeń upewnij się, że masz włączony <em>Tryb programisty</em> i kliknij <em>Załaduj rozpakowane</em> (wklej ścieżkę skrótem <kbd>Ctrl+V</kbd>), aby rozszerzenie było aktywne na stałe po każdym restarcie!`;
+      statusTitle.textContent = `Configured ${res.browser_name} for SnapLoad!`;
+      statusDesc.innerHTML = `${res.message}<br><br>💡 <strong>Permanent Setup Tip:</strong> In the opened extensions tab, ensure <em>Developer mode</em> is enabled and click <em>Load unpacked</em> (paste path with <kbd>Ctrl+V</kbd>) so the extension remains active permanently after restarts!`;
     }
 
     renderStep3BrowserPicker();

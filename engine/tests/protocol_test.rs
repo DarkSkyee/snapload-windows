@@ -328,3 +328,13 @@ async fn test_write_message_oversized_rejection() {
     assert!(result.is_err());
     assert_eq!(result.unwrap_err().kind(), std::io::ErrorKind::InvalidData);
 }
+
+#[tokio::test]
+async fn test_cancel_download_state() {
+    let dm = DownloadManager::new();
+    assert!(!dm.is_cancelled("dl_test_1").await);
+    let res = dm.cancel_download("dl_test_1").await;
+    assert!(res);
+    assert!(dm.is_cancelled("dl_test_1").await);
+    assert!(!dm.is_cancelled("dl_test_2").await);
+}

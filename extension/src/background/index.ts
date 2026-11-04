@@ -14,6 +14,7 @@ interface DownloadState {
 }
 
 const activeDownloads = new Map<string, DownloadState>();
+const cancelledDownloads = new Set<string>();
 let nativePort: chrome.runtime.Port | null = null;
 let isConnecting = false;
 
@@ -78,8 +79,26 @@ function getOrCreateNativePort(): chrome.runtime.Port | null {
 function handleNativeMessage(response: EngineResponse<any>) {
   console.log("[SnapLoad Background] Received from Engine:", response);
 
-  const downloadId = response.id;
+  const downloadId = (response.data && (response.data as any).download_id) || response.id;
   const current = activeDownloads.get(downloadId);
+
+  // If this download was marked as cancelled, prevent resurrection by incoming events
+  if (downloadId && cancelledDownloads.has(downloadId)) {
+    activeDownloads.delete(downloadId);
+    updateBadge();
+    if (response.type === "download_cancelled") {
+      showNotification("SnapLoad Download Cancelled", "Download was stopped.");
+      setTimeout(() => cancelledDownloads.delete(downloadId), 15000);
+    }
+    // Relay event to active popup
+    if (response.type !== "pong") {
+      api.runtime.sendMessage({
+        type: "ENGINE_EVENT",
+        payload: response,
+      }).catch(() => {});
+    }
+    return;
+  }
 
   switch (response.type) {
     case "download_started": {
@@ -163,7 +182,11 @@ function handleNativeMessage(response: EngineResponse<any>) {
     }
 
     case "download_cancelled": {
-      activeDownloads.delete(downloadId);
+      if (downloadId) {
+        cancelledDownloads.add(downloadId);
+        activeDownloads.delete(downloadId);
+        setTimeout(() => cancelledDownloads.delete(downloadId), 15000);
+      }
       updateBadge();
       showNotification("SnapLoad Download Cancelled", "Download was stopped.");
       break;
@@ -283,17 +306,36 @@ api.runtime.onMessage.addListener((message: InternalMessage, _sender: any, sendR
       return true;
     }
     case "CANCEL_DOWNLOAD": {
-      const port = getOrCreateNativePort();
-      if (port && message.payload?.download_id) {
-        port.postMessage({
-          id: "cancel_" + Date.now(),
-          version: "1.0",
-          action: "cancel_download",
-          payload: { download_id: message.payload.download_id },
-        });
+      const dlId = message.payload?.download_id;
+      if (dlId) {
+        cancelledDownloads.add(dlId);
+        activeDownloads.delete(dlId);
+        updateBadge();
+
+        const port = getOrCreateNativePort();
+        if (port) {
+          try {
+            port.postMessage({
+              id: "cancel_" + Date.now(),
+              version: "1.0",
+              action: "cancel_download",
+              payload: { download_id: dlId },
+            });
+          } catch (err) {
+            console.warn("[SnapLoad Background] Failed to send cancel to native port:", err);
+          }
+        }
+
+        // Notify active popup immediately
+        api.runtime.sendMessage({
+          type: "ENGINE_EVENT",
+          payload: {
+            id: dlId,
+            type: "download_cancelled",
+            data: { download_id: dlId },
+          },
+        }).catch(() => {});
       }
-      activeDownloads.delete(message.payload.download_id);
-      updateBadge();
       sendResponse({ success: true });
       return true;
     }

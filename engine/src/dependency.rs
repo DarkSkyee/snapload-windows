@@ -109,6 +109,18 @@ impl DependencyManager {
             return Some(path);
         }
 
+        // 5. WinGet standard path
+        if let Some(local_app_data) = std::env::var_os("LOCALAPPDATA") {
+            let mut p = PathBuf::from(local_app_data);
+            p.push("Microsoft");
+            p.push("WinGet");
+            p.push("Links");
+            p.push("ffmpeg.exe");
+            if p.exists() {
+                return Some(p);
+            }
+        }
+
         None
     }
 

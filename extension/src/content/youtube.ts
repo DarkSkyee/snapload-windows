@@ -1,6 +1,9 @@
 import { api } from "../shared/browser-api";
 
+const PLAYER_CONTAINER_ID = "snapload-ytp-container";
 const PLAYER_BUTTON_ID = "snapload-ytp-btn";
+const OPTIONS_BUTTON_ID = "snapload-ytp-options-btn";
+const DROPDOWN_MENU_ID = "snapload-ytp-dropdown";
 const ACTION_BUTTON_ID = "snapload-yt-action-button";
 const SHORTS_BUTTON_ID = "snapload-shorts-btn";
 
@@ -60,16 +63,20 @@ function getLeftControls(): Element | null {
 }
 
 // ==========================================
-// 1. YouTube Player Control Bar Button
+// 1. YouTube Player Control Bar Button & 3-Dots Options Menu
 // ==========================================
-function createPlayerButton(): HTMLElement {
+function createPlayerContainer(): HTMLElement {
+  const container = document.createElement("div");
+  container.id = PLAYER_CONTAINER_ID;
+  container.className = "snapload-ytp-container";
+
+  // 1. Main Download Button
   const btn = document.createElement("button");
   btn.id = PLAYER_BUTTON_ID;
   btn.className = "ytp-button snapload-ytp-btn";
   btn.type = "button";
-  btn.setAttribute("title", "Download with SnapLoad");
+  btn.setAttribute("title", "Download with SnapLoad (MP4)");
   btn.setAttribute("aria-label", "Download with SnapLoad");
-
   btn.innerHTML = `
     <svg height="100%" version="1.1" viewBox="0 0 36 36" width="100%">
       <defs>
@@ -95,49 +102,155 @@ function createPlayerButton(): HTMLElement {
     </svg>
   `;
 
+  // 2. Options 3-dots Button
+  const optBtn = document.createElement("button");
+  optBtn.id = OPTIONS_BUTTON_ID;
+  optBtn.className = "ytp-button snapload-ytp-options-btn";
+  optBtn.type = "button";
+  optBtn.setAttribute("title", "Download Options");
+  optBtn.setAttribute("aria-label", "Download Options");
+  optBtn.setAttribute("aria-haspopup", "true");
+  optBtn.setAttribute("aria-expanded", "false");
+  optBtn.innerHTML = `
+    <svg height="100%" version="1.1" viewBox="0 0 36 36" width="100%">
+      <circle cx="18" cy="11" r="2.2" fill="#FFFFFF"/>
+      <circle cx="18" cy="18" r="2.2" fill="#FFFFFF"/>
+      <circle cx="18" cy="25" r="2.2" fill="#FFFFFF"/>
+    </svg>
+  `;
+
+  // 3. Dropdown Menu (English options)
+  const menu = document.createElement("div");
+  menu.id = DROPDOWN_MENU_ID;
+  menu.className = "snapload-ytp-menu hidden";
+  menu.innerHTML = `
+    <div class="snapload-menu-header">Download Options</div>
+    <div class="snapload-menu-item" data-format="mp4">
+      <div class="snapload-menu-item-left">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+          <path d="M4 6.5C4 5.12 5.12 4 6.5 4h11C18.88 4 20 5.12 20 6.5v11c0 1.38-1.12 2.5-2.5 2.5h-11C5.12 20 4 18.88 4 17.5v-11zM10 8.5v7l6-3.5-6-3.5z"/>
+        </svg>
+        <span>Download MP4 (Video)</span>
+      </div>
+      <span class="snapload-menu-badge">MP4</span>
+    </div>
+    <div class="snapload-menu-item" data-format="mp3">
+      <div class="snapload-menu-item-left">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+          <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/>
+        </svg>
+        <span>Download MP3 (Audio)</span>
+      </div>
+      <span class="snapload-menu-badge audio">MP3</span>
+    </div>
+  `;
+
+  const normalIcon = btn.querySelector(".snapload-ytp-icon-normal") as HTMLElement | null;
+  const successIcon = btn.querySelector(".snapload-ytp-icon-success") as HTMLElement | null;
+  const errorIcon = btn.querySelector(".snapload-ytp-icon-error") as HTMLElement | null;
+
+  const closeMenu = () => {
+    menu.classList.add("hidden");
+    optBtn.setAttribute("aria-expanded", "false");
+  };
+
+  const openMenu = () => {
+    menu.classList.remove("hidden");
+    optBtn.setAttribute("aria-expanded", "true");
+  };
+
+  const triggerDownload = (format: "mp4" | "mp3") => {
+    closeMenu();
+    btn.classList.add("downloading");
+    btn.setAttribute("title", `Initiating ${format.toUpperCase()} download...`);
+
+    const videoUrl = getCanonicalVideoUrl();
+    console.log(`[SnapLoad Player] Starting ${format.toUpperCase()} download for:`, videoUrl);
+
+    const payload: any = {
+      url: videoUrl,
+      media_type: format === "mp3" ? "audio" : "video",
+    };
+    if (format === "mp3") {
+      payload.audio_format = "mp3";
+      payload.audio_quality = "best";
+    } else {
+      payload.video_format = "mp4";
+      payload.video_quality = "best";
+    }
+
+    api.runtime.sendMessage({
+      type: "START_DOWNLOAD",
+      payload,
+    }, (response: any) => {
+      try {
+        if (response && response.success) {
+          if (normalIcon) normalIcon.style.display = "none";
+          if (successIcon) successIcon.style.display = "block";
+          btn.setAttribute("title", `${format.toUpperCase()} Download Started ✓ (Saved to Downloads)`);
+        } else {
+          if (normalIcon) normalIcon.style.display = "none";
+          if (errorIcon) errorIcon.style.display = "block";
+          btn.setAttribute("title", "SnapLoad Engine Offline - Run Setup");
+        }
+
+        setTimeout(() => {
+          btn.classList.remove("downloading");
+          if (normalIcon) normalIcon.style.display = "block";
+          if (successIcon) successIcon.style.display = "none";
+          if (errorIcon) errorIcon.style.display = "none";
+          btn.setAttribute("title", "Download with SnapLoad (MP4)");
+        }, 3500);
+      } catch (_) {}
+    });
+  };
+
   btn.addEventListener("click", (e) => {
-    try {
-      e.preventDefault();
-      e.stopPropagation();
-
-      const normalIcon = btn.querySelector(".snapload-ytp-icon-normal") as HTMLElement | null;
-      const successIcon = btn.querySelector(".snapload-ytp-icon-success") as HTMLElement | null;
-      const errorIcon = btn.querySelector(".snapload-ytp-icon-error") as HTMLElement | null;
-
-      btn.classList.add("downloading");
-      btn.setAttribute("title", "Initiating SnapLoad...");
-
-      const videoUrl = getCanonicalVideoUrl();
-      console.log("[SnapLoad Player] Starting download for:", videoUrl);
-
-      api.runtime.sendMessage({
-        type: "START_DOWNLOAD",
-        payload: { url: videoUrl },
-      }, (response: any) => {
-        try {
-          if (response && response.success) {
-            if (normalIcon) normalIcon.style.display = "none";
-            if (successIcon) successIcon.style.display = "block";
-            btn.setAttribute("title", "Download Started ✓ (Saved to Downloads)");
-          } else {
-            if (normalIcon) normalIcon.style.display = "none";
-            if (errorIcon) errorIcon.style.display = "block";
-            btn.setAttribute("title", "SnapLoad Engine Offline - Run Setup");
-          }
-
-          setTimeout(() => {
-            btn.classList.remove("downloading");
-            if (normalIcon) normalIcon.style.display = "block";
-            if (successIcon) successIcon.style.display = "none";
-            if (errorIcon) errorIcon.style.display = "none";
-            btn.setAttribute("title", "Download with SnapLoad");
-          }, 3500);
-        } catch (_) {}
-      });
-    } catch (_) {}
+    e.preventDefault();
+    e.stopPropagation();
+    triggerDownload("mp4");
   });
 
-  return btn;
+  optBtn.addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (menu.classList.contains("hidden")) {
+      openMenu();
+    } else {
+      closeMenu();
+    }
+  });
+
+  const mp4Option = menu.querySelector('[data-format="mp4"]');
+  if (mp4Option) {
+    mp4Option.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      triggerDownload("mp4");
+    });
+  }
+
+  const mp3Option = menu.querySelector('[data-format="mp3"]');
+  if (mp3Option) {
+    mp3Option.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      triggerDownload("mp3");
+    });
+  }
+
+  document.addEventListener("click", (e) => {
+    const target = e.target as HTMLElement;
+    if (!container.contains(target)) {
+      closeMenu();
+    }
+  });
+
+  container.appendChild(btn);
+  container.appendChild(optBtn);
+  container.appendChild(menu);
+
+  return container;
 }
 
 function injectPlayerButton() {
@@ -147,7 +260,7 @@ function injectPlayerButton() {
       return;
     }
 
-    const existing = document.getElementById(PLAYER_BUTTON_ID);
+    const existing = document.getElementById(PLAYER_CONTAINER_ID);
     if (existing) {
       if (leftControls.contains(existing)) {
         return; // Already present in current controls, do not mutate DOM
@@ -155,11 +268,11 @@ function injectPlayerButton() {
       existing.remove();
     }
 
-    const btn = createPlayerButton();
+    const container = createPlayerContainer();
     // In left-controls, append to the end (right after time display / chapters)
-    leftControls.appendChild(btn);
+    leftControls.appendChild(container);
 
-    console.log("[SnapLoad] Injected player control bar button in left controls.");
+    console.log("[SnapLoad] Injected player control bar container in left controls.");
   } catch (err) {
     console.debug("[SnapLoad] Non-fatal error injecting player button:", err);
   }
@@ -250,7 +363,7 @@ function injectShortsButton() {
 }
 
 // ==========================================
-// Scoped Styles for All SnapLoad Buttons
+// Scoped Styles for All SnapLoad Buttons & Menus
 // ==========================================
 function injectGlobalStyles() {
   try {
@@ -259,12 +372,22 @@ function injectGlobalStyles() {
     const style = document.createElement("style");
     style.id = "snapload-injected-styles";
     style.textContent = `
-      /* SponsorBlock-style Player Control Button */
+      /* Video Player Container */
+      .snapload-ytp-container {
+        display: inline-flex !important;
+        align-items: center !important;
+        position: relative !important;
+        height: 100% !important;
+        vertical-align: top !important;
+        margin-left: 6px !important;
+      }
+
+      /* Player Download Button */
       .snapload-ytp-btn {
         display: inline-flex !important;
         align-items: center !important;
         justify-content: center !important;
-        width: 44px !important;
+        width: 38px !important;
         height: 100% !important;
         vertical-align: top !important;
         text-align: center !important;
@@ -272,7 +395,6 @@ function injectGlobalStyles() {
         border: none !important;
         background: transparent !important;
         padding: 0 !important;
-        margin-left: 6px !important;
         outline: none !important;
         position: relative !important;
         opacity: 0.9;
@@ -280,13 +402,112 @@ function injectGlobalStyles() {
       }
       .snapload-ytp-btn:hover {
         opacity: 1 !important;
-        transform: scale(1.12);
+        transform: scale(1.1);
       }
       .snapload-ytp-btn:active {
         transform: scale(0.92);
       }
       .snapload-ytp-btn.downloading {
         pointer-events: none;
+      }
+
+      /* 3-Dots Options Button */
+      .snapload-ytp-options-btn {
+        display: inline-flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        width: 26px !important;
+        height: 100% !important;
+        vertical-align: top !important;
+        cursor: pointer !important;
+        border: none !important;
+        background: transparent !important;
+        padding: 0 !important;
+        outline: none !important;
+        position: relative !important;
+        opacity: 0.8;
+        transition: opacity 0.2s ease, transform 0.15s ease;
+      }
+      .snapload-ytp-options-btn:hover {
+        opacity: 1 !important;
+        transform: scale(1.15);
+      }
+      .snapload-ytp-options-btn:active {
+        transform: scale(0.92);
+      }
+
+      /* Dropdown Menu Above Player Controls */
+      .snapload-ytp-menu {
+        position: absolute !important;
+        bottom: 52px !important;
+        left: 0 !important;
+        background: rgba(15, 23, 42, 0.97) !important;
+        backdrop-filter: blur(16px) !important;
+        -webkit-backdrop-filter: blur(16px) !important;
+        border: 1px solid rgba(255, 255, 255, 0.15) !important;
+        border-radius: 10px !important;
+        padding: 6px !important;
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.75), 0 0 1px rgba(255, 255, 255, 0.2) !important;
+        z-index: 999999 !important;
+        display: flex !important;
+        flex-direction: column !important;
+        gap: 3px !important;
+        min-width: 215px !important;
+        user-select: none !important;
+        animation: snaploadFadeIn 0.18s ease-out !important;
+      }
+      .snapload-ytp-menu.hidden {
+        display: none !important;
+      }
+      @keyframes snaploadFadeIn {
+        from { opacity: 0; transform: translateY(6px); }
+        to { opacity: 1; transform: translateY(0); }
+      }
+      .snapload-menu-header {
+        font-size: 10px !important;
+        font-weight: 700 !important;
+        color: #94A3B8 !important;
+        text-transform: uppercase !important;
+        letter-spacing: 0.6px !important;
+        padding: 6px 10px 4px 10px !important;
+        font-family: "Roboto", -apple-system, sans-serif !important;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
+        margin-bottom: 3px !important;
+      }
+      .snapload-menu-item {
+        display: flex !important;
+        align-items: center !important;
+        justify-content: space-between !important;
+        gap: 8px !important;
+        padding: 8px 10px !important;
+        border-radius: 6px !important;
+        cursor: pointer !important;
+        color: #F8FAFC !important;
+        font-size: 12px !important;
+        font-weight: 500 !important;
+        font-family: "Roboto", -apple-system, sans-serif !important;
+        transition: background 0.15s ease, color 0.15s ease !important;
+      }
+      .snapload-menu-item:hover {
+        background: rgba(255, 255, 255, 0.12) !important;
+        color: #00F2FE !important;
+      }
+      .snapload-menu-item-left {
+        display: flex !important;
+        align-items: center !important;
+        gap: 8px !important;
+      }
+      .snapload-menu-badge {
+        font-size: 10px !important;
+        font-weight: 700 !important;
+        padding: 2px 6px !important;
+        border-radius: 4px !important;
+        background: rgba(0, 242, 254, 0.2) !important;
+        color: #00F2FE !important;
+      }
+      .snapload-menu-badge.audio {
+        background: rgba(168, 85, 247, 0.2) !important;
+        color: #C084FC !important;
       }
 
       /* Action Bar Pill Button */
@@ -397,12 +618,12 @@ function injectAll() {
       if (shortsBtn) shortsBtn.remove();
     } else if (isShorts) {
       injectShortsButton();
-      const playerBtn = document.getElementById(PLAYER_BUTTON_ID);
-      if (playerBtn) playerBtn.remove();
+      const playerContainer = document.getElementById(PLAYER_CONTAINER_ID);
+      if (playerContainer) playerContainer.remove();
     } else {
       // Non-video page: clean up buttons
-      const playerBtn = document.getElementById(PLAYER_BUTTON_ID);
-      if (playerBtn) playerBtn.remove();
+      const playerContainer = document.getElementById(PLAYER_CONTAINER_ID);
+      if (playerContainer) playerContainer.remove();
       const shortsBtn = document.getElementById(SHORTS_BUTTON_ID);
       if (shortsBtn) shortsBtn.remove();
     }
@@ -467,7 +688,7 @@ function initNavigationListener() {
 
         if (isWatch) {
           const leftControls = getLeftControls();
-          const existing = document.getElementById(PLAYER_BUTTON_ID);
+          const existing = document.getElementById(PLAYER_CONTAINER_ID);
           if (!leftControls || !existing || !leftControls.contains(existing)) {
             injectPlayerButton();
           }

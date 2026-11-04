@@ -180,21 +180,36 @@ function refreshActiveDownloads() {
 
       const cancelBtn = item.querySelector(".cancel-link");
       if (cancelBtn) {
-        cancelBtn.addEventListener("click", () => {
+        cancelBtn.addEventListener("click", (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          (cancelBtn as HTMLElement).textContent = "Cancelling...";
+          (cancelBtn as HTMLElement).style.pointerEvents = "none";
+          (cancelBtn as HTMLElement).style.opacity = "0.6";
+
           api.runtime.sendMessage({
             type: "CANCEL_DOWNLOAD",
             payload: { download_id: dl.id },
-          }, () => refreshActiveDownloads());
+          }, () => {
+            setTimeout(refreshActiveDownloads, 120);
+          });
         });
       }
 
       const dismissBtn = item.querySelector(".dismiss-link");
       if (dismissBtn) {
-        dismissBtn.addEventListener("click", () => {
+        dismissBtn.addEventListener("click", (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          (dismissBtn as HTMLElement).textContent = "Dismissing...";
+          (dismissBtn as HTMLElement).style.pointerEvents = "none";
+
           api.runtime.sendMessage({
             type: "DISMISS_DOWNLOAD",
             payload: { download_id: dl.id },
-          }, () => refreshActiveDownloads());
+          }, () => {
+            setTimeout(refreshActiveDownloads, 120);
+          });
         });
       }
 

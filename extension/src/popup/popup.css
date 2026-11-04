@@ -286,17 +286,39 @@ select:focus {
 .download-meta-row {
   display: flex;
   justify-content: space-between;
+  align-items: center;
   font-size: 10px;
   color: #94A3B8;
 }
 
+.cancel-link, .dismiss-link {
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-weight: 500;
+  user-select: none;
+  transition: all 0.15s ease;
+}
+
 .cancel-link {
   color: #EF4444;
-  cursor: pointer;
+  background: rgba(239, 68, 68, 0.1);
 }
 
 .cancel-link:hover {
-  text-decoration: underline;
+  background: rgba(239, 68, 68, 0.25);
+  text-decoration: none;
+}
+
+.dismiss-link {
+  color: #94A3B8;
+  background: rgba(148, 163, 184, 0.1);
+}
+
+.dismiss-link:hover {
+  background: rgba(148, 163, 184, 0.25);
+  color: #F1F5F9;
+  text-decoration: none;
 }
 
 /* Footer */

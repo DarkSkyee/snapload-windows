@@ -156,7 +156,7 @@ async fn handle_request(
             let cancelled = downloader.cancel_download(&payload.download_id).await;
             let _ = tx
                 .send(EngineResponse::ok(
-                    &req_id,
+                    &payload.download_id,
                     ResponseType::DownloadCancelled,
                     serde_json::json!({
                         "download_id": payload.download_id,
