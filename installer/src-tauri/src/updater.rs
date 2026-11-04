@@ -10,8 +10,11 @@ use tokio::time::timeout;
 pub struct UpdateInfo {
     pub version: String,
     pub engine_status: String,
+    pub engine_badge: String,
     pub ytdlp_status: String,
+    pub ytdlp_badge: String,
     pub ffmpeg_status: String,
+    pub ffmpeg_badge: String,
 }
 
 pub struct UpdateChecker;
@@ -81,7 +84,7 @@ impl UpdateChecker {
         let bin_dir = Self::get_app_bin_dir();
 
         // 1. Check Engine
-        let engine_status = if let Some(ref dir) = bin_dir {
+        let (engine_status, engine_badge) = if let Some(ref dir) = bin_dir {
             let engine_path = dir.join("snapload-engine.exe");
             if engine_path.exists() {
                 if let Some(expected_hash) = manifest
@@ -91,31 +94,52 @@ impl UpdateChecker {
                 {
                     if !expected_hash.is_empty() {
                         match Self::verify_file_hash(&engine_path, expected_hash) {
-                            Ok(true) => format!(
-                                "SnapLoad Engine v{} verified (SHA-256 match)",
-                                manifest_version
+                            Ok(true) => (
+                                format!(
+                                    "SnapLoad Engine v{} verified (SHA-256 match)",
+                                    manifest_version
+                                ),
+                                format!("v{}", manifest_version),
                             ),
-                            Ok(false) => format!(
-                                "SnapLoad Engine v{} installed (SHA-256 updated)",
-                                manifest_version
+                            Ok(false) => (
+                                format!(
+                                    "SnapLoad Engine v{} installed (SHA-256 updated)",
+                                    manifest_version
+                                ),
+                                format!("v{}", manifest_version),
                             ),
-                            Err(_) => format!("SnapLoad Engine v{} installed", manifest_version),
+                            Err(_) => (
+                                format!("SnapLoad Engine v{} installed", manifest_version),
+                                format!("v{}", manifest_version),
+                            ),
                         }
                     } else {
-                        format!("SnapLoad Engine v{} is up to date", manifest_version)
+                        (
+                            format!("SnapLoad Engine v{} is up to date", manifest_version),
+                            format!("v{}", manifest_version),
+                        )
                     }
                 } else {
-                    format!("SnapLoad Engine v{} is up to date", manifest_version)
+                    (
+                        format!("SnapLoad Engine v{} is up to date", manifest_version),
+                        format!("v{}", manifest_version),
+                    )
                 }
             } else {
-                "SnapLoad Desktop Engine binary is not installed".to_string()
+                (
+                    "SnapLoad Desktop Engine binary is not installed".to_string(),
+                    "Missing".to_string(),
+                )
             }
         } else {
-            "SnapLoad directory unavailable".to_string()
+            (
+                "SnapLoad directory unavailable".to_string(),
+                "Unknown".to_string(),
+            )
         };
 
         // 2. Check yt-dlp
-        let ytdlp_status = if let Some(ref dir) = bin_dir {
+        let (ytdlp_status, ytdlp_badge) = if let Some(ref dir) = bin_dir {
             let ytdlp_path = dir.join("yt-dlp.exe");
             if ytdlp_path.exists() {
                 let mut cmd = tokio::process::Command::new(&ytdlp_path);
@@ -125,34 +149,57 @@ impl UpdateChecker {
                 match timeout(Duration::from_secs(3), cmd.output()).await {
                     Ok(Ok(output)) if output.status.success() => {
                         let ver = String::from_utf8_lossy(&output.stdout).trim().to_string();
-                        format!("yt-dlp release {} is installed", ver)
+                        (
+                            format!("yt-dlp release {} is installed", ver),
+                            ver,
+                        )
                     }
-                    _ => "yt-dlp core extractor is installed".to_string(),
+                    _ => (
+                        "yt-dlp core extractor is installed".to_string(),
+                        "Installed".to_string(),
+                    ),
                 }
             } else {
-                "yt-dlp is not installed (can be installed via Setup)".to_string()
+                (
+                    "yt-dlp is not installed (can be installed via Setup)".to_string(),
+                    "Not Installed".to_string(),
+                )
             }
         } else {
-            "yt-dlp status unknown".to_string()
+            ("yt-dlp status unknown".to_string(), "Unknown".to_string())
         };
 
         // 3. Check FFmpeg
-        let ffmpeg_status = if let Some(ref dir) = bin_dir {
+        let (ffmpeg_status, ffmpeg_badge) = if let Some(ref dir) = bin_dir {
             let ffmpeg_path = dir.join("ffmpeg.exe");
             if ffmpeg_path.exists() {
-                "FFmpeg media converter is installed".to_string()
+                (
+                    "FFmpeg media converter is installed".to_string(),
+                    "Installed".to_string(),
+                )
+            } else if crate::setup::which("ffmpeg.exe").is_some() {
+                (
+                    "FFmpeg media converter detected on system PATH".to_string(),
+                    "On PATH".to_string(),
+                )
             } else {
-                "FFmpeg media converter not installed (optional)".to_string()
+                (
+                    "FFmpeg media converter not installed (optional)".to_string(),
+                    "Optional".to_string(),
+                )
             }
         } else {
-            "FFmpeg status unknown".to_string()
+            ("FFmpeg status unknown".to_string(), "Optional".to_string())
         };
 
         UpdateInfo {
             version: manifest_version,
             engine_status,
+            engine_badge,
             ytdlp_status,
+            ytdlp_badge,
             ffmpeg_status,
+            ffmpeg_badge,
         }
     }
 }

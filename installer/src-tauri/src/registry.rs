@@ -32,7 +32,10 @@ impl RegistryManager {
             "type": "stdio",
             "allowed_origins": [
                 "chrome-extension://ikkidkbojpedpeaomipgioiigmjlpflg/",
-                "extension://ikkidkbojpedpeaomipgioiigmjlpflg/"
+                "extension://ikkidkbojpedpeaomipgioiigmjlpflg/",
+                "opera-extension://ikkidkbojpedpeaomipgioiigmjlpflg/",
+                "chrome-extension://fmkfjmpdcflidoafkijcnafjmmdcjfck/",
+                "chrome-extension://ohoalmkigaipobmpanfbceocpiciajgg/"
             ]
         });
 
@@ -61,14 +64,23 @@ impl RegistryManager {
     pub fn register_browser(browser_id: &str, manifest_path: &Path) -> Result<(), String> {
         let subkeys = match browser_id {
             "chrome" => vec![format!(r"Software\Google\Chrome\NativeMessagingHosts\{}", HOST_NAME)],
-            "edge" => vec![format!(r"Software\Microsoft\Edge\NativeMessagingHosts\{}", HOST_NAME)],
-            "brave" => vec![format!(r"Software\BraveSoftware\Brave-Browser\NativeMessagingHosts\{}", HOST_NAME)],
+            "edge" => vec![
+                format!(r"Software\Microsoft\Edge\NativeMessagingHosts\{}", HOST_NAME),
+                format!(r"Software\Google\Chrome\NativeMessagingHosts\{}", HOST_NAME),
+            ],
+            "brave" => vec![
+                format!(r"Software\BraveSoftware\Brave-Browser\NativeMessagingHosts\{}", HOST_NAME),
+                format!(r"Software\Google\Chrome\NativeMessagingHosts\{}", HOST_NAME),
+            ],
             "opera" => vec![
                 format!(r"Software\Opera Software\Opera Stable\NativeMessagingHosts\{}", HOST_NAME),
                 format!(r"Software\Opera Software\NativeMessagingHosts\{}", HOST_NAME),
+                format!(r"Software\Google\Chrome\NativeMessagingHosts\{}", HOST_NAME),
             ],
             "operagx" => vec![
                 format!(r"Software\Opera Software\Opera GX Stable\NativeMessagingHosts\{}", HOST_NAME),
+                format!(r"Software\Opera Software\NativeMessagingHosts\{}", HOST_NAME),
+                format!(r"Software\Google\Chrome\NativeMessagingHosts\{}", HOST_NAME),
             ],
             "firefox" => vec![format!(r"Software\Mozilla\NativeMessagingHosts\{}", HOST_NAME)],
             _ => return Err(format!("Unsupported browser id: {}", browser_id)),
