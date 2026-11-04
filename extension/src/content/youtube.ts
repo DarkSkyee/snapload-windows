@@ -165,107 +165,6 @@ function injectPlayerButton() {
   }
 }
 
-// ==========================================
-// 2. Action Bar Pill Button (Below video title)
-// ==========================================
-function createActionButton(): HTMLElement {
-  const container = document.createElement("div");
-  container.id = ACTION_BUTTON_ID;
-  container.className = "snapload-btn-container";
-  container.setAttribute("role", "button");
-  container.setAttribute("tabindex", "0");
-  container.setAttribute("aria-label", "Download with SnapLoad");
-
-  container.innerHTML = `
-    <button class="snapload-download-btn" type="button" title="Download with SnapLoad">
-      <div class="snapload-btn-icon">
-        <svg viewBox="0 0 108 108" width="18" height="18" fill="none">
-          <defs>
-            <linearGradient id="snaploadActionGrad" x1="0" y1="0" x2="108" y2="108" gradientUnits="userSpaceOnUse">
-              <stop offset="0%" stop-color="#00F2FE"/>
-              <stop offset="50%" stop-color="#6366F1"/>
-              <stop offset="100%" stop-color="#A855F7"/>
-            </linearGradient>
-          </defs>
-          <path d="M66,32 C58,28 44,29 38,36 C34,41 35,49 42,53 L58,60 C64,63 66,67 64,72 C61,77 53,79 46,77 C41,75 37,71 36,67"
-                stroke="url(#snaploadActionGrad)" stroke-width="8" stroke-linecap="round" fill="none"/>
-          <path d="M54,40 L54,66 M44,56 L54,66 L64,56" stroke="#FFFFFF" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
-        </svg>
-      </div>
-      <span class="snapload-btn-label">SnapLoad</span>
-    </button>
-  `;
-
-  const btn = container.querySelector(".snapload-download-btn") as HTMLButtonElement;
-  btn.addEventListener("click", (e) => {
-    try {
-      e.preventDefault();
-      e.stopPropagation();
-
-      const videoUrl = getCanonicalVideoUrl();
-      console.log("[SnapLoad Action] Triggering download for:", videoUrl);
-
-      btn.classList.add("downloading");
-      const label = btn.querySelector(".snapload-btn-label");
-      if (label) label.textContent = "Starting...";
-
-      api.runtime.sendMessage({
-        type: "START_DOWNLOAD",
-        payload: { url: videoUrl },
-      }, (response: any) => {
-        try {
-          if (response && response.success) {
-            if (label) label.textContent = "Started ✓";
-          } else {
-            if (label) label.textContent = "Offline";
-          }
-          setTimeout(() => {
-            btn.classList.remove("downloading");
-            if (label) label.textContent = "SnapLoad";
-          }, 3000);
-        } catch (_) {}
-      });
-    } catch (_) {}
-  });
-
-  return container;
-}
-
-function injectActionButton() {
-  try {
-    const isWatch = window.location.pathname.startsWith("/watch");
-    if (!isWatch) return;
-
-    // Isolate SnapLoad action pill outside ytd-menu-renderer Polymer tree
-    // to prevent calculateSize crashes and preserve SponsorBlock/native buttons
-    const actionsContainer =
-      document.querySelector("ytd-watch-metadata #actions") ||
-      document.querySelector("#actions");
-
-    if (!actionsContainer) return;
-
-    const existing = document.getElementById(ACTION_BUTTON_ID);
-    if (existing) {
-      if (actionsContainer.contains(existing)) {
-        return; // Already present in container
-      }
-      existing.remove();
-    }
-
-    const button = createActionButton();
-    // Insert before actions-inner (ytd-menu-renderer) so it is an external sibling
-    const innerMenu = actionsContainer.querySelector("#actions-inner") || actionsContainer.firstElementChild;
-    if (innerMenu) {
-      actionsContainer.insertBefore(button, innerMenu);
-    } else {
-      actionsContainer.appendChild(button);
-    }
-
-    console.log("[SnapLoad] Injected action bar button.");
-  } catch (err) {
-    console.debug("[SnapLoad] Non-fatal error injecting action button:", err);
-  }
-}
 
 // ==========================================
 // 3. YouTube Shorts Button
@@ -483,28 +382,27 @@ function injectAll() {
   try {
     injectGlobalStyles();
 
+    // Strictly remove any buttons next to subscribe button or metadata actions per user request
+    const staleActionElements = document.querySelectorAll(
+      `#${ACTION_BUTTON_ID}, .snapload-btn-container, .snapload-download-btn`
+    );
+    staleActionElements.forEach((el) => el.remove());
+
     const isWatch = window.location.pathname.startsWith("/watch");
     const isShorts = window.location.pathname.startsWith("/shorts");
 
     if (isWatch) {
       injectPlayerButton();
-      // Remove any action button next to subscribe button per user request
-      const actionBtn = document.getElementById(ACTION_BUTTON_ID);
-      if (actionBtn) actionBtn.remove();
       const shortsBtn = document.getElementById(SHORTS_BUTTON_ID);
       if (shortsBtn) shortsBtn.remove();
     } else if (isShorts) {
       injectShortsButton();
       const playerBtn = document.getElementById(PLAYER_BUTTON_ID);
       if (playerBtn) playerBtn.remove();
-      const actionBtn = document.getElementById(ACTION_BUTTON_ID);
-      if (actionBtn) actionBtn.remove();
     } else {
       // Non-video page: clean up buttons
       const playerBtn = document.getElementById(PLAYER_BUTTON_ID);
       if (playerBtn) playerBtn.remove();
-      const actionBtn = document.getElementById(ACTION_BUTTON_ID);
-      if (actionBtn) actionBtn.remove();
       const shortsBtn = document.getElementById(SHORTS_BUTTON_ID);
       if (shortsBtn) shortsBtn.remove();
     }
@@ -573,8 +471,10 @@ function initNavigationListener() {
           if (!leftControls || !existing || !leftControls.contains(existing)) {
             injectPlayerButton();
           }
-          const actionBtn = document.getElementById(ACTION_BUTTON_ID);
-          if (actionBtn) actionBtn.remove();
+          const staleActionElements = document.querySelectorAll(
+            `#${ACTION_BUTTON_ID}, .snapload-btn-container, .snapload-download-btn`
+          );
+          staleActionElements.forEach((el) => el.remove());
         } else if (isShorts) {
           injectShortsButton();
         }
