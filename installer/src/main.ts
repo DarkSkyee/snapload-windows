@@ -513,13 +513,13 @@ async function updateStep3ActiveBrowserCard() {
     if (step3Title) step3Title.textContent = "Ready on YouTube";
     if (step3Desc) step3Desc.textContent = "SnapLoad download buttons appear immediately on video pages.";
   } else {
-    if (guideBrowserDesc) guideBrowserDesc.textContent = `If ${b.name} requires Developer Mode to load unpacked extensions, follow these 3 quick steps (extension path is already in your clipboard!):`;
-    if (step1Title) step1Title.textContent = "Open Extensions Tab";
-    if (step1Desc) step1Desc.innerHTML = `Open the extensions page in your browser (<code>${extUrl}</code>).`;
-    if (step2Title) step2Title.textContent = "Turn on Developer Mode";
-    if (step2Desc) step2Desc.innerHTML = `Switch the <em>Developer mode</em> (PL: <em>Tryb programisty</em>) toggle in the top-right corner to <strong>ON</strong>.`;
-    if (step3Title) step3Title.textContent = "Load Unpacked & Paste";
-    if (step3Desc) step3Desc.innerHTML = `Click <em>Load unpacked</em> (PL: <em>Załaduj rozpakowane</em>), press <kbd>Ctrl+V</kbd> and select folder.`;
+    if (guideBrowserDesc) guideBrowserDesc.innerHTML = `<strong>Ważne / Important:</strong> Aby rozszerzenie pozostało na stałe w przeglądarce ${b.name} (również po jej zamknięciu i ponownym uruchomieniu), wykonaj jednorazowo te 3 proste kroki (ścieżka jest już skopiowana do schowka!):`;
+    if (step1Title) step1Title.textContent = "1. Karta Rozszerzeń";
+    if (step1Desc) step1Desc.innerHTML = `Otwórz stronę rozszerzeń w przeglądarce (<code>${extUrl}</code>).`;
+    if (step2Title) step2Title.textContent = "2. Tryb Programisty (Developer mode)";
+    if (step2Desc) step2Desc.innerHTML = `Przełącz suwak <em>Developer mode</em> (PL: <em>Tryb programisty</em>) w prawym górnym rogu na <strong>WŁĄCZONY (ON)</strong>.`;
+    if (step3Title) step3Title.textContent = "3. Załaduj Rozpakowane & Wklej";
+    if (step3Desc) step3Desc.innerHTML = `Kliknij <em>Load unpacked</em> (PL: <em>Załaduj rozpakowane</em>), naciśnij <kbd>Ctrl+V</kbd> w polu folderu i zatwierdź. Gotowe!`;
   }
 }
 
@@ -580,14 +580,14 @@ document.getElementById("btn-auto-install")?.addEventListener("click", async () 
     }
 
     btn.disabled = false;
-    btnTitle.textContent = `✓ Extension Active in ${res.browser_name}!`;
-    btnSubtitle.textContent = "Click again to launch browser with extension loaded";
+    btnTitle.textContent = `✓ Extension Configured for ${res.browser_name}!`;
+    btnSubtitle.textContent = "Skróty utworzone • Preferencje profilu skonfigurowane";
 
     if (statusBox && statusTitle && statusDesc) {
       statusBox.className = "auto-install-status-box success";
       if (statusIcon) statusIcon.textContent = "✓";
-      statusTitle.textContent = `Launched ${res.browser_name} with SnapLoad!`;
-      statusDesc.textContent = `${res.message}`;
+      statusTitle.textContent = `Skonfigurowano ${res.browser_name} dla SnapLoad!`;
+      statusDesc.innerHTML = `${res.message}<br><br>💡 <strong>Wskazówka na stałe:</strong> W otwartej karcie rozszerzeń upewnij się, że masz włączony <em>Tryb programisty</em> i kliknij <em>Załaduj rozpakowane</em> (wklej ścieżkę skrótem <kbd>Ctrl+V</kbd>), aby rozszerzenie było aktywne na stałe po każdym restarcie!`;
     }
 
     renderStep3BrowserPicker();
@@ -739,10 +739,12 @@ async function checkSetupUpdate(silent: boolean = false): Promise<SetupUpdateInf
     }
 
     if (res.error) {
+      if (availBadge) availBadge.classList.add("hidden");
+      if (actionBox) actionBox.classList.add("hidden");
       const isNotFound = res.error.includes("Not Found") || res.error.includes("No published releases");
       if (descEl) {
         descEl.textContent = isNotFound
-          ? `SnapLoad Setup is up to date (v${res.current_version}). No newer releases found on GitHub.`
+          ? `SnapLoad Setup is up to date (v${res.current_version}). You have the latest version.`
           : `Update check: ${res.error}. Local setup is v${res.current_version}.`;
       }
       if (!silent) showToast(isNotFound ? `Setup is up to date (v${res.current_version})` : `Update check: ${res.error}`);
@@ -772,20 +774,8 @@ async function checkSetupUpdate(silent: boolean = false): Promise<SetupUpdateInf
       if (!silent) showToast(`New setup update v${res.latest_version} available!`);
     } else {
       if (availBadge) availBadge.classList.add("hidden");
-      if (actionBox) actionBox.classList.remove("hidden");
-      if (latestVerText) latestVerText.textContent = `v${res.latest_version} (Current)`;
-      if (releaseDate && res.published_at) {
-        const dateStr = new Date(res.published_at).toLocaleDateString();
-        releaseDate.textContent = `(Released ${dateStr})`;
-      }
-      if (releaseNotes) {
-        releaseNotes.textContent = res.release_notes || "SnapLoad Setup is running the latest available build.";
-      }
+      if (actionBox) actionBox.classList.add("hidden");
       if (descEl) descEl.textContent = `SnapLoad Setup is up to date (v${res.current_version}). You have the latest version.`;
-      if (doUpdateBtn) {
-        doUpdateBtn.innerHTML = `<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg> Re-download / Repair Setup`;
-        doUpdateBtn.disabled = false;
-      }
       if (headerBadge) {
         headerBadge.textContent = `v${res.current_version}`;
         headerBadge.classList.remove("update-pulse");
