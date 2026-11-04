@@ -115,6 +115,8 @@ impl SetupManager {
 
     pub fn get_paths() -> ExtensionPaths {
         let app_dir = Self::get_app_dir().to_string_lossy().to_string();
+        let _ = Self::ensure_chromium_ext_deployed();
+        let _ = Self::ensure_firefox_ext_deployed();
         let chromium_dir = Self::get_chromium_ext_dir().to_string_lossy().to_string();
         let firefox_xpi = Self::get_firefox_ext_dir()
             .join("snapload-extension-firefox.xpi")
@@ -134,8 +136,18 @@ impl SetupManager {
         }
     }
 
-    pub fn deploy_to_browser_profiles(_chrome_unpacked_dir: &Path) -> Vec<String> {
-        vec!["Unpacked Chromium extension ready in SnapLoad directory".to_string()]
+    pub fn deploy_to_browser_profiles(chrome_unpacked_dir: &Path) -> Vec<String> {
+        let mut logs = Vec::new();
+        if !chrome_unpacked_dir.join("manifest.json").exists() {
+            if let Ok(dir) = Self::ensure_chromium_ext_deployed() {
+                logs.push(format!("Deployed Chromium extension with manifest.json to: {:?}", dir));
+            } else {
+                logs.push("Warning: could not deploy unpacked Chromium extension".to_string());
+            }
+        } else {
+            logs.push(format!("Verified unpacked Chromium extension at: {:?}", chrome_unpacked_dir));
+        }
+        logs
     }
 
     pub async fn run_install(options: InstallOptions) -> Result<InstallResult, String> {
@@ -959,20 +971,62 @@ impl SetupManager {
         let chrome_zip_dest = Self::get_extensions_dir().join("snapload-extension-chromium.zip");
         if !EMBEDDED_CHROME_EXT.is_empty() {
             let _ = std::fs::write(&chrome_zip_dest, EMBEDDED_CHROME_EXT);
-            if unpack_zip_bytes(EMBEDDED_CHROME_EXT, &chrome_unpacked_dir).is_ok() {
+            if unpack_zip_bytes(EMBEDDED_CHROME_EXT, &chrome_unpacked_dir).is_ok()
+                && chrome_unpacked_dir.join("manifest.json").exists()
+            {
                 return Ok(chrome_unpacked_dir);
             }
         }
 
-        let workspace_chrome_dirs = [
+        // Try workspace directories
+        let mut workspace_chrome_dirs = vec![
             PathBuf::from("extension/dist/chrome"),
             PathBuf::from("../extension/dist/chrome"),
             PathBuf::from("../../extension/dist/chrome"),
         ];
+
+        if let Ok(cwd) = std::env::current_dir() {
+            workspace_chrome_dirs.push(cwd.join("extension/dist/chrome"));
+            workspace_chrome_dirs.push(cwd.join("../extension/dist/chrome"));
+        }
+
+        if let Ok(exe) = std::env::current_exe() {
+            if let Some(parent) = exe.parent() {
+                workspace_chrome_dirs.push(parent.join("extension/dist/chrome"));
+                workspace_chrome_dirs.push(parent.join("../../extension/dist/chrome"));
+            }
+        }
+
         for w in &workspace_chrome_dirs {
             if w.exists() && w.join("manifest.json").exists() {
                 let _ = copy_dir_recursive(w, &chrome_unpacked_dir);
-                return Ok(chrome_unpacked_dir);
+                if chrome_unpacked_dir.join("manifest.json").exists() {
+                    return Ok(chrome_unpacked_dir);
+                }
+            }
+        }
+
+        // Try workspace zip files
+        let mut workspace_zips = vec![
+            PathBuf::from("extension/dist/snapload-extension-chromium.zip"),
+            PathBuf::from("../extension/dist/snapload-extension-chromium.zip"),
+            PathBuf::from("../../extension/dist/snapload-extension-chromium.zip"),
+        ];
+        if let Ok(cwd) = std::env::current_dir() {
+            workspace_zips.push(cwd.join("extension/dist/snapload-extension-chromium.zip"));
+            workspace_zips.push(cwd.join("../extension/dist/snapload-extension-chromium.zip"));
+        }
+
+        for z in &workspace_zips {
+            if z.exists() {
+                if let Ok(bytes) = std::fs::read(z) {
+                    let _ = std::fs::write(&chrome_zip_dest, &bytes);
+                    if unpack_zip_bytes(&bytes, &chrome_unpacked_dir).is_ok()
+                        && chrome_unpacked_dir.join("manifest.json").exists()
+                    {
+                        return Ok(chrome_unpacked_dir);
+                    }
+                }
             }
         }
 
@@ -1127,10 +1181,17 @@ impl SetupManager {
         if was_running {
             if restart_if_running {
                 logs.push(format!(
-                    "Browser {} is currently running — closing processes to load extension into session...",
+                    "Browser {} is currently running — closing processes to load extension cleanly into session...",
                     name
                 ));
                 let _ = BrowserDetector::close_browser_processes(browser_id);
+                // Poll until all browser processes have terminated (up to 2.5 seconds)
+                for _ in 0..12 {
+                    if !BrowserDetector::is_browser_process_running(browser_id) {
+                        break;
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(200));
+                }
             } else {
                 logs.push(format!(
                     "Notice: {} is running. Extension will take full effect after restarting the browser.",
@@ -1178,22 +1239,47 @@ impl SetupManager {
             ext_to_copy_to_clip = chrome_unpacked.to_string_lossy().to_string();
             logs.push(format!("Chromium extension folder: {:?}", chrome_unpacked));
 
-
-
             // Register external extension in Registry
             let _ = RegistryManager::register_chromium_extension(browser_id, &chrome_unpacked);
             logs.push(format!("Registered extension in Windows Registry for {}", name));
 
-            // Launch browser in detached process
+            // Configure Enterprise Policy ExtensionInstallAllowlist
+            let _ = RegistryManager::register_chromium_policy_allowlist(browser_id);
+            logs.push(format!("Configured ExtensionInstallAllowlist policy for {}", name));
+
+            let ext_url = match browser_id {
+                "opera" | "operagx" => "opera://extensions",
+                "edge" => "edge://extensions",
+                "brave" => "brave://extensions",
+                _ => "chrome://extensions",
+            };
+
+            // Launch browser in detached process with --load-extension
             #[cfg(windows)]
             {
                 use std::os::windows::process::CommandExt;
                 const CREATE_NEW_PROCESS_GROUP: u32 = 0x00000200;
                 let mut cmd = std::process::Command::new(&exe_path);
+                let ext_path_clean = chrome_unpacked.to_string_lossy().to_string();
+                
+                // 1. Pass --load-extension flag
+                cmd.arg(format!("--load-extension={}", ext_path_clean));
+                
+                // 2. Pass feature flag to allow sideloading in older/unbranded builds
+                cmd.arg("--disable-features=DisableLoadExtensionCommandLineSwitch");
+                
+                // 3. Open extensions manager page so user can verify / 1-click 'Load unpacked'
+                cmd.arg(ext_url);
+                
+                // 4. Also open YouTube
                 cmd.arg("https://www.youtube.com");
+
                 cmd.creation_flags(CREATE_NEW_PROCESS_GROUP);
                 cmd.spawn().map_err(|e| format!("Failed to launch {}: {}", name, e))?;
-                logs.push(format!("Launched {} on YouTube with SnapLoad configured", name));
+                logs.push(format!(
+                    "Launched {} with --load-extension, extensions manager ({}), and YouTube",
+                    name, ext_url
+                ));
             }
         }
 
@@ -1214,15 +1300,25 @@ impl SetupManager {
             }
         }
 
-        let message = if was_running && restart_if_running {
+        let ext_url_for_msg = match browser_id {
+            "firefox" => "about:addons",
+            "opera" | "operagx" => "opera://extensions",
+            "edge" => "edge://extensions",
+            "brave" => "brave://extensions",
+            _ => "chrome://extensions",
+        };
+
+        let message = if browser_id == "firefox" {
+            format!("SnapLoad extension prompt opened in {}! Click 'Add' to activate.", name)
+        } else if was_running && restart_if_running {
             format!(
-                "Browser {} has been restarted and SnapLoad extension is active!",
-                name
+                "Browser {} restarted with extension loaded! Extensions page ({}) and YouTube opened.",
+                name, ext_url_for_msg
             )
         } else {
             format!(
-                "SnapLoad extension has been installed and activated in {}!",
-                name
+                "SnapLoad extension loaded into {}! Extensions page ({}) and YouTube opened.",
+                name, ext_url_for_msg
             )
         };
 
@@ -1432,5 +1528,25 @@ mod tests {
                 assert!(p.exists(), "Profile path for {} must exist: {:?}", b_id, p);
             }
         }
+    }
+
+    #[test]
+    fn test_policy_allowlist_registration() {
+        for b_id in ["opera", "operagx", "chrome", "edge", "brave"] {
+            let res = RegistryManager::register_chromium_policy_allowlist(b_id);
+            assert!(res.is_ok(), "Policy allowlist registration failed for {}: {:?}", b_id, res);
+        }
+    }
+
+    #[test]
+    fn test_ensure_chromium_ext_deployed_manifest_contents() {
+        let res = SetupManager::ensure_chromium_ext_deployed();
+        assert!(res.is_ok(), "Failed ensuring chromium ext deployed: {:?}", res);
+        let path = res.unwrap();
+        let manifest = path.join("manifest.json");
+        assert!(manifest.exists(), "manifest.json must exist in {:?}", path);
+        let content = std::fs::read_to_string(&manifest).expect("manifest.json readable");
+        assert!(content.contains("\"manifest_version\""), "manifest must have manifest_version");
+        assert!(content.contains("SnapLoad"), "manifest must contain SnapLoad");
     }
 }
