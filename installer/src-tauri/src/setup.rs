@@ -196,23 +196,35 @@ impl SetupManager {
                  \"$env:PUBLIC\\Desktop\", \
                  \"$env:APPDATA\\Microsoft\\Windows\\Start Menu\\Programs\", \
                  \"$env:ProgramData\\Microsoft\\Windows\\Start Menu\\Programs\", \
+                 \"$env:APPDATA\\Microsoft\\Internet Explorer\\Quick Launch\", \
+                 \"$env:APPDATA\\Microsoft\\Internet Explorer\\Quick Launch\\User Pinned\\StartMenu\", \
                  \"$env:APPDATA\\Microsoft\\Internet Explorer\\Quick Launch\\User Pinned\\TaskBar\" \
              ); \
+             $userSm = \"$env:APPDATA\\Microsoft\\Windows\\Start Menu\\Programs\"; \
              foreach ($d in $dirs) {{ \
                  if (Test-Path $d) {{ \
                      Get-ChildItem -Path $d -Recurse -Filter \"*.lnk\" -ErrorAction SilentlyContinue | ForEach-Object {{ \
                          try {{ \
                              $sc = $ws.CreateShortcut($_.FullName); \
                              $scTarget = ('' + $sc.TargetPath).ToLower(); \
-                             if ($scTarget.Length -gt 0 -and ($scTarget -eq $cleanTarget -or $scTarget.EndsWith($exeName) -or $scTarget -like ('*\\' + $exeName))) {{ \
+                             $isMatch = ($scTarget.Length -gt 0 -and ($scTarget -eq $cleanTarget -or $scTarget.EndsWith($exeName) -or $scTarget -like ('*\\' + $exeName) -or ($exeName -like '*opera*.exe' -and ($scTarget.EndsWith('launcher.exe') -or $scTarget -like '*\\opera*')))); \
+                             if ($isMatch) {{ \
                                  $curArgs = ('' + $sc.Arguments).Trim(); \
+                                 $newArgs = if ($curArgs -notlike \"*--load-extension=*\") {{ if ($curArgs.Length -gt 0) {{ $curArgs + ' ' + $flag }} else {{ $flag }} }} else {{ $curArgs }}; \
                                  if ($curArgs -notlike \"*--load-extension=*\") {{ \
-                                     if ($curArgs.Length -gt 0) {{ \
-                                         $sc.Arguments = $curArgs + ' ' + $flag; \
-                                     }} else {{ \
-                                         $sc.Arguments = $flag; \
-                                     }} \
-                                     $sc.Save(); \
+                                     $sc.Arguments = $newArgs; \
+                                     try {{ $sc.Save(); }} catch {{}} \
+                                 }} \
+                                 if ($d -like \"*ProgramData*\" -and (Test-Path $userSm)) {{ \
+                                     try {{ \
+                                         $userLnkPath = Join-Path $userSm $_.Name; \
+                                         $userSc = $ws.CreateShortcut($userLnkPath); \
+                                         $userSc.TargetPath = $sc.TargetPath; \
+                                         $userSc.Arguments = $newArgs; \
+                                         if ($sc.IconLocation) {{ $userSc.IconLocation = $sc.IconLocation; }} else {{ $userSc.IconLocation = $sc.TargetPath; }} \
+                                         if ($sc.WorkingDirectory) {{ $userSc.WorkingDirectory = $sc.WorkingDirectory; }} \
+                                         $userSc.Save(); \
+                                     }} catch {{}} \
                                  }} \
                              }} \
                          }} catch {{}} \
@@ -816,10 +828,16 @@ impl SetupManager {
         ext_id: &str,
         unpacked_path: &Path,
     ) {
-        let prefs_files = [
+        let mut prefs_files = vec![
             profile_path.join("Preferences"),
             profile_path.join("Secure Preferences"),
+            profile_path.join("Default").join("Preferences"),
+            profile_path.join("Default").join("Secure Preferences"),
         ];
+        if let Some(parent) = profile_path.parent() {
+            prefs_files.push(parent.join("Preferences"));
+            prefs_files.push(parent.join("Secure Preferences"));
+        }
 
         let path_str = unpacked_path.to_string_lossy().to_string();
 
@@ -929,11 +947,19 @@ impl SetupManager {
     }
 
     pub fn clean_extension_from_chromium_profile(profile_path: &Path, ext_id: &str) {
-        // Clean from Preferences and Secure Preferences JSON
-        for fname in &["Preferences", "Secure Preferences"] {
-            let prefs_file = profile_path.join(fname);
+        let mut prefs_files = vec![
+            profile_path.join("Preferences"),
+            profile_path.join("Secure Preferences"),
+            profile_path.join("Default").join("Preferences"),
+            profile_path.join("Default").join("Secure Preferences"),
+        ];
+        if let Some(parent) = profile_path.parent() {
+            prefs_files.push(parent.join("Preferences"));
+            prefs_files.push(parent.join("Secure Preferences"));
+        }
+        for prefs_file in &prefs_files {
             if prefs_file.exists() {
-                if let Ok(content) = std::fs::read_to_string(&prefs_file) {
+                if let Ok(content) = std::fs::read_to_string(prefs_file) {
                     if let Ok(mut json) = serde_json::from_str::<serde_json::Value>(&content) {
                         let mut modified = false;
 
