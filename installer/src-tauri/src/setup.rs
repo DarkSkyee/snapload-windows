@@ -149,6 +149,9 @@ impl SetupManager {
             .map(|u| PathBuf::from(u).join("Desktop"))
             .unwrap_or_else(|| PathBuf::from("."));
 
+        let start_menu_programs = std::env::var_os("APPDATA")
+            .map(|u| PathBuf::from(u).join(r"Microsoft\Windows\Start Menu\Programs"));
+
         let ext_str = ext_path.to_string_lossy().to_string();
         let browser_name = match browser_id {
             "opera" => "Opera",
@@ -159,37 +162,35 @@ impl SetupManager {
             _ => "Browser",
         };
 
-        let shortcut_path = user_desktop.join(format!("SnapLoad ({}).lnk", browser_name));
-        let ps_script = format!(
-            "$ws = New-Object -ComObject WScript.Shell; \
-             $s = $ws.CreateShortcut('{}'); \
-             $s.TargetPath = '{}'; \
-             $s.Arguments = '--load-extension=\"{}\" --disable-features=DisableLoadExtensionCommandLineSwitch'; \
-             $s.IconLocation = '{}'; \
-             $s.Description = 'Launch {} with SnapLoad extension'; \
-             $s.Save()",
-            shortcut_path.to_string_lossy().replace('\'', "''"),
-            exe_path.replace('\'', "''"),
-            ext_str.replace('\'', "''"),
-            exe_path.replace('\'', "''"),
-            browser_name
-        );
-
-        let mut cmd = std::process::Command::new("powershell.exe");
-        #[cfg(windows)]
-        cmd.creation_flags(CREATE_NO_WINDOW);
-        cmd.args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", &ps_script]);
-
-        match cmd.output() {
-            Ok(out) if out.status.success() => {
-                Ok(format!("Created desktop shortcut: {:?}", shortcut_path))
-            }
-            Ok(out) => {
-                let err = String::from_utf8_lossy(&out.stderr).to_string();
-                Err(format!("PowerShell shortcut creation error: {}", err))
-            }
-            Err(e) => Err(format!("Failed to invoke PowerShell for shortcut: {}", e)),
+        let mut targets = vec![user_desktop.join(format!("SnapLoad ({}).lnk", browser_name))];
+        if let Some(ref sm) = start_menu_programs {
+            targets.push(sm.join(format!("SnapLoad ({}).lnk", browser_name)));
         }
+
+        for shortcut_path in &targets {
+            let ps_script = format!(
+                "$ws = New-Object -ComObject WScript.Shell; \
+                 $s = $ws.CreateShortcut('{}'); \
+                 $s.TargetPath = '{}'; \
+                 $s.Arguments = '--load-extension=\"{}\" --disable-features=DisableLoadExtensionCommandLineSwitch'; \
+                 $s.IconLocation = '{}'; \
+                 $s.Description = 'Launch {} with SnapLoad extension'; \
+                 $s.Save()",
+                shortcut_path.to_string_lossy().replace('\'', "''"),
+                exe_path.replace('\'', "''"),
+                ext_str.replace('\'', "''"),
+                exe_path.replace('\'', "''"),
+                browser_name
+            );
+
+            let mut cmd = std::process::Command::new("powershell.exe");
+            #[cfg(windows)]
+            cmd.creation_flags(CREATE_NO_WINDOW);
+            cmd.args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", &ps_script]);
+            let _ = cmd.output();
+        }
+
+        Ok(format!("Created desktop & Start Menu shortcuts for {}", browser_name))
     }
 
     pub fn deploy_to_browser_profiles(chrome_unpacked_dir: &Path) -> Vec<String> {
@@ -204,12 +205,16 @@ impl SetupManager {
             logs.push(format!("Verified unpacked Chromium extension at: {:?}", chrome_unpacked_dir));
         }
 
-        // Configure enterprise policies and desktop launcher shortcuts for all detected Chromium browsers
+        // Configure enterprise policies, profile preferences, and launcher shortcuts for all detected Chromium browsers
         for b_id in ["chrome", "opera", "operagx", "edge", "brave"] {
             if let Some(exe) = BrowserDetector::find_browser_exe(b_id) {
                 let clean_exe = BrowserDetector::sanitize_exe_path(&exe);
                 if !clean_exe.is_empty() {
                     RegistryManager::register_all_chromium_policies(b_id);
+                    let profiles = BrowserDetector::find_browser_profiles(b_id);
+                    for prof in &profiles {
+                        Self::inject_extension_to_chromium_profile(prof, "ikkidkbojpedpeaomipgioiigmjlpflg", chrome_unpacked_dir);
+                    }
                     match Self::create_or_update_browser_shortcut(b_id, &clean_exe, chrome_unpacked_dir) {
                         Ok(msg) => logs.push(msg),
                         Err(e) => logs.push(format!("Shortcut creation note for {}: {}", b_id, e)),
@@ -217,7 +222,7 @@ impl SetupManager {
                 }
             }
         }
-        logs.push("Configured Chromium enterprise policies and desktop shortcuts".to_string());
+        logs.push("Configured Chromium enterprise policies, profile preferences, and shortcuts".to_string());
 
         logs
     }
@@ -759,6 +764,97 @@ impl SetupManager {
             let _ = cmd.output();
         }
         !dir.exists()
+    }
+
+    pub fn inject_extension_to_chromium_profile(
+        profile_path: &Path,
+        ext_id: &str,
+        unpacked_path: &Path,
+    ) {
+        let prefs_files = [
+            profile_path.join("Preferences"),
+            profile_path.join("Secure Preferences"),
+        ];
+
+        let path_str = unpacked_path.to_string_lossy().to_string();
+
+        for prefs_file in &prefs_files {
+            if !prefs_file.exists() {
+                continue;
+            }
+            if let Ok(content) = std::fs::read_to_string(prefs_file) {
+                if let Ok(mut json) = serde_json::from_str::<serde_json::Value>(&content) {
+                    let mut modified = false;
+
+                    if json.get("extensions").is_none() {
+                        json["extensions"] = serde_json::json!({});
+                    }
+
+                    if let Some(extensions) = json.get_mut("extensions").and_then(|e| e.as_object_mut()) {
+                        if !extensions.contains_key("settings") {
+                            extensions.insert("settings".to_string(), serde_json::json!({}));
+                        }
+                        if let Some(settings) = extensions.get_mut("settings").and_then(|s| s.as_object_mut()) {
+                            let ext_entry = serde_json::json!({
+                                "active_permissions": {
+                                    "api": ["nativeMessaging"],
+                                    "manifest_permissions": [],
+                                    "scriptable_host": ["*://*.youtube.com/*"]
+                                },
+                                "commands": {},
+                                "content_settings": [],
+                                "creation_flags": 38,
+                                "events": [],
+                                "from_bookmark": false,
+                                "from_webstore": false,
+                                "granted_permissions": {
+                                    "api": ["nativeMessaging"],
+                                    "manifest_permissions": [],
+                                    "scriptable_host": ["*://*.youtube.com/*"]
+                                },
+                                "incognito_content_settings": [],
+                                "incognito_preferences": {},
+                                "initial_keybindings": [],
+                                "location": 5,
+                                "new_allow_file_access": true,
+                                "path": path_str,
+                                "preferences": {},
+                                "regular_only_preferences": {},
+                                "service_worker_registration_info": {},
+                                "state": 1,
+                                "was_installed_by_default": false,
+                                "was_installed_by_oem": false
+                            });
+                            settings.insert(ext_id.to_string(), ext_entry);
+                            modified = true;
+                        }
+
+                        if !extensions.contains_key("pinned_extensions") {
+                            extensions.insert("pinned_extensions".to_string(), serde_json::json!([]));
+                        }
+                        if let Some(pinned) = extensions.get_mut("pinned_extensions").and_then(|p| p.as_array_mut()) {
+                            if !pinned.iter().any(|v| v.as_str() == Some(ext_id)) {
+                                pinned.push(serde_json::Value::String(ext_id.to_string()));
+                                modified = true;
+                            }
+                        }
+
+                        if let Some(toolbar) = extensions.get_mut("toolbar").and_then(|t| t.as_array_mut()) {
+                            if !toolbar.iter().any(|v| v.as_str() == Some(ext_id)) {
+                                toolbar.push(serde_json::Value::String(ext_id.to_string()));
+                                modified = true;
+                            }
+                        }
+                    }
+
+                    if modified {
+                        if let Ok(serialized) = serde_json::to_string_pretty(&json) {
+                            let _ = std::fs::write(prefs_file, serialized);
+                        }
+                    }
+                }
+            }
+        }
     }
 
     pub fn clean_extension_from_chromium_profile(profile_path: &Path, ext_id: &str) {
@@ -1315,11 +1411,17 @@ impl SetupManager {
             let _ = RegistryManager::register_chromium_extension(browser_id, &chrome_unpacked);
             logs.push(format!("Registered extension in Windows Registry for {}", name));
 
-            // Configure Enterprise Policies (Allowlist & Forcelist)
+            // Configure Enterprise Policies (Sources, DevMode & Allowlist)
             RegistryManager::register_all_chromium_policies(browser_id);
-            logs.push(format!("Configured Extension Policies (Allowlist & Forcelist) for {}", name));
+            logs.push(format!("Configured Extension Policies for {}", name));
 
-            // Create or update Desktop Launcher shortcut with --load-extension
+            // Inject into all detected profile Preferences directly
+            for prof in &profile_dirs {
+                Self::inject_extension_to_chromium_profile(prof, "ikkidkbojpedpeaomipgioiigmjlpflg", &chrome_unpacked);
+                logs.push(format!("Configured permanent extension profile preferences for: {:?}", prof));
+            }
+
+            // Create or update Desktop and Start Menu shortcuts with --load-extension
             match Self::create_or_update_browser_shortcut(browser_id, &exe_path, &chrome_unpacked) {
                 Ok(msg) => logs.push(msg),
                 Err(e) => logs.push(format!("Desktop shortcut note: {}", e)),
@@ -1612,10 +1714,18 @@ mod tests {
     }
 
     #[test]
-    fn test_policy_forcelist_registration() {
+    fn test_policy_sources_registration() {
         for b_id in ["opera", "operagx", "chrome", "edge", "brave"] {
-            let res = RegistryManager::register_chromium_policy_forcelist(b_id);
-            assert!(res.is_ok(), "Policy forcelist registration failed for {}: {:?}", b_id, res);
+            let res = RegistryManager::register_chromium_policy_sources(b_id);
+            assert!(res.is_ok(), "Policy sources registration failed for {}: {:?}", b_id, res);
+        }
+    }
+
+    #[test]
+    fn test_policy_developer_mode_registration() {
+        for b_id in ["opera", "operagx", "chrome", "edge", "brave"] {
+            let res = RegistryManager::register_chromium_developer_mode_policy(b_id);
+            assert!(res.is_ok(), "Policy developer mode registration failed for {}: {:?}", b_id, res);
         }
     }
 
