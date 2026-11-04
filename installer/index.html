@@ -249,6 +249,51 @@
               <p id="status-box-desc" class="status-box-desc">Browser launched with SnapLoad extension loaded.</p>
             </div>
 
+            <!-- Unified 1-Click Guided Flow for Chromium / Opera / Firefox -->
+            <div id="step3-guide-card" class="step3-guide-card">
+              <div class="guide-header">
+                <div class="guide-title-row">
+                  <span class="guide-badge">Easy 1-Click Sideload Guide</span>
+                  <span id="guide-browser-tag" class="pill-badge core">Opera</span>
+                </div>
+                <p id="guide-browser-desc" class="guide-subtitle">
+                  If your browser requires Developer Mode to load unpacked extensions, follow these 3 quick steps (extension path is already copied to clipboard!):
+                </p>
+              </div>
+
+              <div class="guide-steps-grid">
+                <div class="guide-step-card">
+                  <div class="step-badge">1</div>
+                  <div class="step-content">
+                    <strong class="step-title" id="step1-title">Open Extensions Tab</strong>
+                    <span class="step-desc" id="step1-desc">Open the extensions page in your browser (<code id="guide-ext-url-code">opera://extensions</code>).</span>
+                    <button type="button" id="btn-quick-open-ext-page" class="btn-step-action">
+                      🌐 Open Extensions Page
+                    </button>
+                  </div>
+                </div>
+
+                <div class="guide-step-card">
+                  <div class="step-badge">2</div>
+                  <div class="step-content">
+                    <strong class="step-title" id="step2-title">Turn on Developer Mode</strong>
+                    <span class="step-desc" id="step2-desc">Switch the <em>Developer mode</em> toggle in the top-right corner to <strong>ON</strong>.</span>
+                  </div>
+                </div>
+
+                <div class="guide-step-card">
+                  <div class="step-badge">3</div>
+                  <div class="step-content">
+                    <strong class="step-title" id="step3-title">Load Unpacked & Paste</strong>
+                    <span class="step-desc" id="step3-desc">Click <em>Load unpacked</em> (PL: <em>Załaduj rozpakowane</em>), press <kbd>Ctrl+V</kbd> and select folder.</span>
+                    <button type="button" id="btn-quick-copy-path" class="btn-step-action">
+                      📋 Copy Extension Path
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
             <!-- Advanced Collapsible Options (Non-intrusive) -->
             <details class="step3-advanced-details">
               <summary>Advanced Options & Installation Verification</summary>
