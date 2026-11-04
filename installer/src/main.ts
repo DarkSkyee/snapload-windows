@@ -245,7 +245,7 @@ async function fetchPaths(): Promise<ExtensionPaths> {
       app_dir: "C:\\Users\\User\\AppData\\Local\\SnapLoad",
       chromium_dir: "C:\\Users\\User\\AppData\\Local\\SnapLoad\\extensions\\chromium",
       firefox_xpi: "C:\\Users\\User\\AppData\\Local\\SnapLoad\\extensions\\firefox\\snapload-extension-firefox.xpi",
-      downloads_dir: "C:\\Users\\User\\Downloads\\SnapLoad",
+      downloads_dir: "C:\\Users\\User\\Downloads",
     };
   }
 }
@@ -326,7 +326,7 @@ function renderStep3BrowserPicker() {
 
   const detectedCount = detectedBrowsers.filter(b => b.detected).length;
   if (countEl) {
-    countEl.textContent = `${detectedCount} wykryto`;
+    countEl.textContent = `${detectedCount} detected`;
   }
 
   pickerEl.innerHTML = "";
@@ -338,7 +338,7 @@ function renderStep3BrowserPicker() {
     tab.innerHTML = `
       <div class="tab-icon">${svgIcon}</div>
       <span class="tab-name">${b.name}</span>
-      <span class="tab-dot ${b.detected ? "detected" : ""}" title="${b.detected ? "Wykryto na komputerze" : "Nie wykryto"}"></span>
+      <span class="tab-dot ${b.detected ? "detected" : ""}" title="${b.detected ? "Detected on system" : "Not detected"}"></span>
     `;
 
     tab.addEventListener("click", () => {
@@ -386,38 +386,38 @@ async function updateStep3ActiveBrowserCard() {
   if (statusEl) {
     if (b.detected) {
       statusEl.textContent = b.is_running
-        ? "Wykryto na komputerze • Przeglądarka jest obecnie otwarta"
-        : "Wykryto na komputerze • Gotowy do automatycznej instalacji";
+        ? "Detected on system • Browser is currently open"
+        : "Detected on system • Ready for auto-install";
     } else {
-      statusEl.textContent = "Niewykryty w domyślnej ścieżce na tym komputerze";
+      statusEl.textContent = "Not detected at default path on this computer";
     }
   }
 
   if (readyBadgeEl) {
     if (b.detected) {
-      readyBadgeEl.textContent = b.is_running ? "Otwarta" : "Gotowy";
+      readyBadgeEl.textContent = b.is_running ? "Running" : "Ready";
       readyBadgeEl.className = `pill-badge ${b.is_running ? "warning" : "core"}`;
     } else {
-      readyBadgeEl.textContent = "Niewykryty";
+      readyBadgeEl.textContent = "Not Found";
       readyBadgeEl.className = "pill-badge";
     }
   }
 
   if (exePathEl) {
-    exePathEl.textContent = b.path || "Nie znaleziono pliku .exe na tym komputerze";
+    exePathEl.textContent = b.path || "Executable (.exe) not found on this computer";
     exePathEl.title = b.path || "";
   }
   if (exeBadgeEl) {
-    exeBadgeEl.textContent = b.detected ? "Wykryto .exe" : "Brak pliku";
+    exeBadgeEl.textContent = b.detected ? ".exe Detected" : "Missing";
     exeBadgeEl.className = `path-status-badge ${b.detected ? "ok" : "warn"}`;
   }
 
   if (profilePathEl) {
-    profilePathEl.textContent = b.profile_path || (b.id === "firefox" ? "%APPDATA%\\Mozilla\\Firefox\\Profiles" : "Domyślny katalog profilu użytkownika");
+    profilePathEl.textContent = b.profile_path || (b.id === "firefox" ? "%APPDATA%\\Mozilla\\Firefox\\Profiles" : "Default user profile directory");
     profilePathEl.title = b.profile_path || "";
   }
   if (profileBadgeEl) {
-    profileBadgeEl.textContent = b.profile_path ? "Profil aktywny" : "Auto-detekcja";
+    profileBadgeEl.textContent = b.profile_path ? "Profile active" : "Auto-detect";
     profileBadgeEl.className = `path-status-badge ${b.profile_path ? "ok" : ""}`;
   }
 
@@ -425,8 +425,8 @@ async function updateStep3ActiveBrowserCard() {
   if (runningRow && runningStatus && runningBadge) {
     if (b.detected && b.is_running) {
       runningRow.style.display = "flex";
-      runningStatus.textContent = `Proces ${b.name} jest aktywny w systemie`;
-      runningBadge.textContent = "Uruchomiona";
+      runningStatus.textContent = `${b.name} process is currently active`;
+      runningBadge.textContent = "Running";
       runningBadge.className = "path-status-badge warn";
     } else {
       runningRow.style.display = "none";
@@ -441,21 +441,21 @@ async function updateStep3ActiveBrowserCard() {
   const willRestart = (b.detected && b.is_running && (!restartCb || restartCb.checked));
   if (btnTitleEl) {
     if (!b.detected) {
-      btnTitleEl.textContent = `Przeglądarka ${b.name} nie została znaleziona`;
+      btnTitleEl.textContent = `${b.name} was not detected`;
     } else if (willRestart) {
-      btnTitleEl.textContent = `Zainstaluj i zrestartuj w ${b.name}`;
+      btnTitleEl.textContent = `Install & Restart in ${b.name}`;
     } else {
-      btnTitleEl.textContent = `Zainstaluj automatycznie w ${b.name}`;
+      btnTitleEl.textContent = `Auto-Install into ${b.name}`;
     }
   }
 
   if (btnSubTitleEl) {
     if (!b.detected) {
-      btnSubTitleEl.textContent = "Zainstaluj przeglądarkę na komputerze lub wybierz inną z powyższej listy";
+      btnSubTitleEl.textContent = "Install browser on this computer or select another from the list above";
     } else if (willRestart) {
-      btnSubTitleEl.textContent = `Zamyka bieżące okno i uruchamia ${b.name} z rozszerzeniem SnapLoad na YouTube`;
+      btnSubTitleEl.textContent = `Closes active window and launches ${b.name} with SnapLoad on YouTube`;
     } else {
-      btnSubTitleEl.textContent = `1 kliknięcie: konfiguruje pliki, rejestr i uruchamia ${b.name} z rozszerzeniem`;
+      btnSubTitleEl.textContent = `1-Click: deploys files, registers native host, and launches ${b.name}`;
     }
   }
 
@@ -478,11 +478,11 @@ document.getElementById("cb-restart-browser")?.addEventListener("change", () => 
 
   const willRestart = (b.detected && b.is_running && restartCb && restartCb.checked);
   if (willRestart) {
-    btnTitleEl.textContent = `Zainstaluj i zrestartuj w ${b.name}`;
-    btnSubTitleEl.textContent = `Zamyka bieżące okno i uruchamia ${b.name} z rozszerzeniem SnapLoad na YouTube`;
+    btnTitleEl.textContent = `Install & Restart in ${b.name}`;
+    btnSubTitleEl.textContent = `Closes active window and launches ${b.name} with SnapLoad on YouTube`;
   } else {
-    btnTitleEl.textContent = `Zainstaluj automatycznie w ${b.name}`;
-    btnSubTitleEl.textContent = `Konfiguruje pliki i rejestr (rozszerzenie uaktywni się po ponownym otwarciu ${b.name})`;
+    btnTitleEl.textContent = `Auto-Install into ${b.name}`;
+    btnSubTitleEl.textContent = `Registers host and deploys files (active upon relaunching ${b.name})`;
   }
 });
 
@@ -502,9 +502,9 @@ document.getElementById("btn-auto-install")?.addEventListener("click", async () 
   if (!btn || !btnTitle || !btnSubtitle) return;
 
   btn.disabled = true;
-  const actionWord = (b.is_running && restartIfRunning) ? "Restartowanie i aktywacja" : "Instalowanie i uruchamianie";
-  btnTitle.innerHTML = `<span class="spinner" style="margin-right: 8px;"></span>${actionWord} w ${b.name}...`;
-  btnSubtitle.textContent = "Weryfikacja ścieżki .exe, konfiguracja rejestru i otwieranie przeglądarki...";
+  const actionWord = (b.is_running && restartIfRunning) ? "Restarting & Launching" : "Configuring & Launching";
+  btnTitle.innerHTML = `<span class="spinner" style="margin-right: 8px;"></span>${actionWord} in ${b.name}...`;
+  btnSubtitle.textContent = "Verifying binary path, registering Native Host, and launching browser...";
 
   try {
     const res = await invoke<AutoInstallResult>("auto_install_browser_extension", {
@@ -525,33 +525,33 @@ document.getElementById("btn-auto-install")?.addEventListener("click", async () 
     }
 
     btn.disabled = false;
-    btnTitle.textContent = `✓ Rozszerzenie aktywne w ${res.browser_name}!`;
-    btnSubtitle.textContent = "Kliknij ponownie, aby otworzyć przeglądarkę z załadowanym rozszerzeniem";
+    btnTitle.textContent = `✓ Extension Active in ${res.browser_name}!`;
+    btnSubtitle.textContent = "Click again to launch browser with extension loaded";
 
     if (statusBox && statusTitle && statusDesc) {
       statusBox.className = "auto-install-status-box success";
       if (statusIcon) statusIcon.textContent = "✓";
-      statusTitle.textContent = `Rozszerzenie aktywne w ${res.browser_name}!`;
-      statusDesc.textContent = `${res.message} Przeglądarka została uruchomiona z YouTube. Ścieżka rozszerzenia została skopiowana do schowka!`;
+      statusTitle.textContent = `Extension active in ${res.browser_name}!`;
+      statusDesc.textContent = `${res.message} Browser launched with YouTube. Extension path copied to clipboard!`;
     }
 
     renderStep3BrowserPicker();
     await updateStep3ActiveBrowserCard();
     if (statusBox) statusBox.classList.remove("hidden");
 
-    showToast(`SnapLoad zainstalowany w ${res.browser_name}!`);
+    showToast(`SnapLoad configured for ${res.browser_name}!`);
   } catch (err: any) {
     btn.disabled = false;
-    btnTitle.textContent = `Zainstaluj automatycznie w ${b.name}`;
-    btnSubtitle.textContent = "Wystąpił błąd — kliknij aby spróbować ponownie";
+    btnTitle.textContent = `Auto-Install into ${b.name}`;
+    btnSubtitle.textContent = "An error occurred — click to retry";
 
     if (statusBox && statusTitle && statusDesc) {
       statusBox.className = "auto-install-status-box error";
       if (statusIcon) statusIcon.textContent = "!";
-      statusTitle.textContent = `Nie udało się zainstalować w ${b.name}`;
+      statusTitle.textContent = `Failed to configure ${b.name}`;
       statusDesc.textContent = String(err);
     }
-    showToast(`Błąd: ${err}`);
+    showToast(`Error: ${err}`);
   }
 });
 
@@ -562,7 +562,7 @@ document.getElementById("btn-open-active-ext-folder")?.addEventListener("click",
     ? paths.app_dir + "\\extensions\\firefox"
     : paths.chromium_dir;
   await invoke("open_folder", { path: folder });
-  showToast("Otwarto folder rozszerzenia");
+  showToast("Opened extension directory");
 });
 
 document.getElementById("btn-copy-ext-path")?.addEventListener("click", async () => {
@@ -574,15 +574,15 @@ document.getElementById("btn-copy-ext-path")?.addEventListener("click", async ()
   if (navigator.clipboard) {
     await navigator.clipboard.writeText(folder).catch(() => {});
   }
-  showToast("Skopiowano ścieżkę do schowka: " + folder);
+  showToast("Copied extension path to clipboard");
 });
 
 document.getElementById("btn-open-browser-ext-page")?.addEventListener("click", async () => {
   try {
     const res = await invoke<string>("open_browser_extensions_page", { browserId: step3ActiveBrowserId });
-    showToast(res || "Otwarto stronę rozszerzeń");
+    showToast(res || "Opened browser extensions page");
   } catch (e: any) {
-    showToast(`Błąd: ${e}`);
+    showToast(`Error: ${e}`);
   }
 });
 
@@ -590,20 +590,20 @@ document.getElementById("btn-step3-verify")?.addEventListener("click", async () 
   const btn = document.getElementById("btn-step3-verify") as HTMLButtonElement;
   const container = document.getElementById("step3-verify-results") as HTMLElement;
   btn.disabled = true;
-  btn.innerHTML = `<span class="spinner"></span> Weryfikacja...`;
+  btn.innerHTML = `<span class="spinner"></span> Verifying...`;
   container.style.display = "flex";
-  container.innerHTML = `<li style="padding: 12px; text-align: center; color: var(--text-secondary); width: 100%;"><span class="spinner" style="margin-right: 8px;"></span>Testowanie plików, rejestru i połączenia IPC...</li>`;
+  container.innerHTML = `<li style="padding: 12px; text-align: center; color: var(--text-secondary); width: 100%;"><span class="spinner" style="margin-right: 8px;"></span>Testing binaries, registry and IPC connection...</li>`;
 
   try {
     const result = await invoke<DiagnosticResult>("verify_installation");
     renderDiagnosticItems(container, result);
-    btn.innerHTML = `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg> Sprawdź diagnostykę instalacji`;
+    btn.innerHTML = `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg> Run Diagnostics`;
     btn.disabled = false;
-    showToast(`Weryfikacja ukończona: ${result.passed}/${result.total} testów zaliczonych!`);
+    showToast(`Diagnostics complete: ${result.passed}/${result.total} checks passed!`);
   } catch (e: any) {
-    btn.innerHTML = `Sprawdź diagnostykę instalacji`;
+    btn.innerHTML = `Run Diagnostics`;
     btn.disabled = false;
-    container.innerHTML = `<li class="diag-item"><span class="diag-status-badge error">BŁĄD</span><div class="diag-content"><div class="diag-title">Błąd weryfikacji</div><div class="diag-message">${e}</div></div></li>`;
+    container.innerHTML = `<li class="diag-item"><span class="diag-status-badge error">ERROR</span><div class="diag-content"><div class="diag-title">Verification Error</div><div class="diag-message">${e}</div></div></li>`;
   }
 });
 
@@ -619,6 +619,9 @@ async function runUpdateCheck() {
   const engineMsg = document.getElementById("engine-update-msg") as HTMLElement;
   const ytdlpMsg = document.getElementById("ytdlp-update-msg") as HTMLElement;
   const ffmpegMsg = document.getElementById("ffmpeg-update-msg") as HTMLElement;
+  const engineCurVer = document.getElementById("engine-cur-ver") as HTMLElement;
+  const ytdlpCurVer = document.getElementById("ytdlp-cur-ver") as HTMLElement;
+  const ffmpegCurVer = document.getElementById("ffmpeg-cur-ver") as HTMLElement;
   const btn = document.getElementById("check-updates-btn") as HTMLButtonElement;
 
   btn.disabled = true;
@@ -627,15 +630,54 @@ async function runUpdateCheck() {
   ytdlpMsg.textContent = "Checking yt-dlp binary...";
   ffmpegMsg.textContent = "Checking FFmpeg transcoding engine...";
 
+  if (engineCurVer) {
+    engineCurVer.textContent = "Checking...";
+    engineCurVer.className = "pill-badge";
+  }
+  if (ytdlpCurVer) {
+    ytdlpCurVer.textContent = "Checking...";
+    ytdlpCurVer.className = "pill-badge";
+  }
+  if (ffmpegCurVer) {
+    ffmpegCurVer.textContent = "Checking...";
+    ffmpegCurVer.className = "pill-badge";
+  }
+
   try {
     const status = await invoke<any>("check_updates");
     engineMsg.textContent = status.engine_status || "SnapLoad Desktop Engine is verified (v1.0.0)";
     ytdlpMsg.textContent = status.ytdlp_status || "yt-dlp core extractor is verified";
     ffmpegMsg.textContent = status.ffmpeg_status || "FFmpeg build is verified";
+
+    if (engineCurVer) {
+      engineCurVer.textContent = status.engine_badge || "v1.0.0";
+      engineCurVer.className = `pill-badge ${status.engine_badge === "Missing" ? "warning" : "core"}`;
+    }
+    if (ytdlpCurVer) {
+      ytdlpCurVer.textContent = status.ytdlp_badge || "Ready";
+      ytdlpCurVer.className = `pill-badge ${status.ytdlp_badge === "Not Installed" ? "warning" : "core"}`;
+    }
+    if (ffmpegCurVer) {
+      ffmpegCurVer.textContent = status.ffmpeg_badge || "Ready";
+      ffmpegCurVer.className = `pill-badge ${status.ffmpeg_badge === "Optional" ? "" : "core"}`;
+    }
   } catch (e: any) {
     engineMsg.textContent = "SnapLoad Desktop Engine binary is verified";
     ytdlpMsg.textContent = "yt-dlp core is installed";
     ffmpegMsg.textContent = "FFmpeg is configured";
+
+    if (engineCurVer) {
+      engineCurVer.textContent = "v1.0.0";
+      engineCurVer.className = "pill-badge core";
+    }
+    if (ytdlpCurVer) {
+      ytdlpCurVer.textContent = "Ready";
+      ytdlpCurVer.className = "pill-badge core";
+    }
+    if (ffmpegCurVer) {
+      ffmpegCurVer.textContent = "Ready";
+      ffmpegCurVer.className = "pill-badge core";
+    }
   } finally {
     btn.disabled = false;
     btn.innerHTML = `Check for Updates Now`;
@@ -728,7 +770,7 @@ document.getElementById("btn-open-dl-dir")?.addEventListener("click", async () =
 
 // Uninstall
 document.getElementById("uninstall-btn")?.addEventListener("click", async () => {
-  if (confirm("Are you sure you want to clean uninstall SnapLoad? Engine binaries and registry keys will be removed. Your downloaded media in Downloads\\SnapLoad will remain untouched.")) {
+  if (confirm("Are you sure you want to clean uninstall SnapLoad? Engine binaries and registry keys will be removed. Your downloaded media in Downloads will remain untouched.")) {
     try {
       await invoke<string[]>("uninstall_snapload");
       alert("SnapLoad desktop components and Native Messaging hosts have been cleanly uninstalled.");
