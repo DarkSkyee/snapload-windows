@@ -8,7 +8,7 @@ use setup::{
     AutoInstallResult, DiagnosticResult, ExtensionPaths, InstallOptions, InstallResult,
     SetupManager,
 };
-use updater::{UpdateChecker, UpdateInfo};
+use updater::{SetupUpdateInfo, UpdateChecker, UpdateInfo};
 
 #[tauri::command]
 fn detect_browsers() -> Vec<BrowserInfo> {
@@ -59,6 +59,25 @@ async fn install_snapload(options: InstallOptions) -> Result<InstallResult, Stri
 #[tauri::command]
 async fn check_updates() -> UpdateInfo {
     UpdateChecker::check_all().await
+}
+
+#[tauri::command]
+async fn check_setup_update() -> SetupUpdateInfo {
+    UpdateChecker::check_setup_update().await
+}
+
+#[tauri::command]
+async fn download_and_launch_setup_update(
+    download_url: Option<String>,
+    asset_url: Option<String>,
+    tag: Option<String>,
+) -> Result<String, String> {
+    UpdateChecker::download_and_launch_setup_update(download_url, asset_url, tag).await
+}
+
+#[tauri::command]
+fn exit_app() {
+    std::process::exit(0);
 }
 
 #[tauri::command]
@@ -238,6 +257,9 @@ pub fn run() {
             copy_to_clipboard,
             install_snapload,
             check_updates,
+            check_setup_update,
+            download_and_launch_setup_update,
+            exit_app,
             verify_installation,
             uninstall_snapload,
             get_paths,
