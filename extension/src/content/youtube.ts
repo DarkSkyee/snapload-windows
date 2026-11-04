@@ -1,31 +1,141 @@
 import { api } from "../shared/browser-api";
 
-const BUTTON_ID = "snapload-yt-action-button";
+const PLAYER_BUTTON_ID = "snapload-ytp-btn";
+const ACTION_BUTTON_ID = "snapload-yt-action-button";
+const SHORTS_BUTTON_ID = "snapload-shorts-btn";
+
 let observer: MutationObserver | null = null;
 let lastUrl = "";
+let debounceTimer: any = null;
 
-function createSnapLoadButton(): HTMLElement {
+// ==========================================
+// 1. YouTube Player Control Bar Button (SponsorBlock style)
+// ==========================================
+function createPlayerButton(): HTMLElement {
+  const btn = document.createElement("button");
+  btn.id = PLAYER_BUTTON_ID;
+  btn.className = "ytp-button snapload-ytp-btn";
+  btn.type = "button";
+  btn.setAttribute("title", "Download with SnapLoad");
+  btn.setAttribute("aria-label", "Download with SnapLoad");
+
+  btn.innerHTML = `
+    <svg height="100%" version="1.1" viewBox="0 0 36 36" width="100%">
+      <defs>
+        <linearGradient id="snapYtpGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stop-color="#00F2FE"/>
+          <stop offset="100%" stop-color="#818CF8"/>
+        </linearGradient>
+      </defs>
+      <g class="snapload-ytp-icon-normal">
+        <path d="M 10 24 L 10 26 C 10 26.5 10.5 27 11 27 L 25 27 C 25.5 27 26 26.5 26 26 L 26 24" 
+              stroke="#FFFFFF" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+        <path d="M 18 9 L 18 21 M 13 16 L 18 21 L 23 16" 
+              stroke="url(#snapYtpGrad)" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+      </g>
+      <g class="snapload-ytp-icon-success" style="display: none;">
+        <path d="M 12 18 L 16 22 L 24 13" 
+              stroke="#10B981" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+      </g>
+      <g class="snapload-ytp-icon-error" style="display: none;">
+        <path d="M 13 13 L 23 23 M 23 13 L 13 23" 
+              stroke="#EF4444" stroke-width="2.5" stroke-linecap="round" fill="none"/>
+      </g>
+    </svg>
+  `;
+
+  btn.addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    const normalIcon = btn.querySelector(".snapload-ytp-icon-normal") as HTMLElement;
+    const successIcon = btn.querySelector(".snapload-ytp-icon-success") as HTMLElement;
+    const errorIcon = btn.querySelector(".snapload-ytp-icon-error") as HTMLElement;
+
+    btn.classList.add("downloading");
+    btn.setAttribute("title", "Initiating SnapLoad...");
+
+    const videoUrl = window.location.href;
+    console.log("[SnapLoad Player] Starting download for:", videoUrl);
+
+    api.runtime.sendMessage({
+      type: "START_DOWNLOAD",
+      payload: { url: videoUrl },
+    }, (response: any) => {
+      if (response && response.success) {
+        if (normalIcon) normalIcon.style.display = "none";
+        if (successIcon) successIcon.style.display = "block";
+        btn.setAttribute("title", "Download Started ✓ (Saved to Downloads)");
+      } else {
+        if (normalIcon) normalIcon.style.display = "none";
+        if (errorIcon) errorIcon.style.display = "block";
+        btn.setAttribute("title", "SnapLoad Engine Offline - Run Setup");
+      }
+
+      setTimeout(() => {
+        btn.classList.remove("downloading");
+        if (normalIcon) normalIcon.style.display = "block";
+        if (successIcon) successIcon.style.display = "none";
+        if (errorIcon) errorIcon.style.display = "none";
+        btn.setAttribute("title", "Download with SnapLoad");
+      }, 3500);
+    });
+  });
+
+  return btn;
+}
+
+function injectPlayerButton() {
+  if (document.getElementById(PLAYER_BUTTON_ID)) {
+    return;
+  }
+
+  // Look for YouTube player right controls (settings, subtitles, etc.)
+  const rightControls = document.querySelector(".ytp-chrome-controls .ytp-right-controls");
+  if (!rightControls) {
+    return;
+  }
+
+  const btn = createPlayerButton();
+
+  // Insert before settings button or subtitles button if possible, else prepend
+  const settingsBtn = rightControls.querySelector(".ytp-settings-button");
+  const subBtn = rightControls.querySelector(".ytp-subtitles-button");
+  const target = settingsBtn || subBtn || rightControls.firstChild;
+
+  if (target) {
+    rightControls.insertBefore(btn, target);
+  } else {
+    rightControls.appendChild(btn);
+  }
+
+  console.log("[SnapLoad] Injected player control bar button.");
+}
+
+// ==========================================
+// 2. Action Bar Pill Button (Below title)
+// ==========================================
+function createActionButton(): HTMLElement {
   const container = document.createElement("div");
-  container.id = BUTTON_ID;
+  container.id = ACTION_BUTTON_ID;
   container.className = "snapload-btn-container";
   container.setAttribute("role", "button");
   container.setAttribute("tabindex", "0");
   container.setAttribute("aria-label", "Download with SnapLoad");
 
-  // Modern SnapLoad Monogram & Download Arrow SVG
   container.innerHTML = `
     <button class="snapload-download-btn" type="button" title="Download with SnapLoad">
       <div class="snapload-btn-icon">
         <svg viewBox="0 0 108 108" width="18" height="18" fill="none">
           <defs>
-            <linearGradient id="snaploadGrad" x1="0" y1="0" x2="108" y2="108" gradientUnits="userSpaceOnUse">
+            <linearGradient id="snaploadActionGrad" x1="0" y1="0" x2="108" y2="108" gradientUnits="userSpaceOnUse">
               <stop offset="0%" stop-color="#00F2FE"/>
               <stop offset="50%" stop-color="#6366F1"/>
               <stop offset="100%" stop-color="#A855F7"/>
             </linearGradient>
           </defs>
           <path d="M66,32 C58,28 44,29 38,36 C34,41 35,49 42,53 L58,60 C64,63 66,67 64,72 C61,77 53,79 46,77 C41,75 37,71 36,67"
-                stroke="url(#snaploadGrad)" stroke-width="8" stroke-linecap="round" fill="none"/>
+                stroke="url(#snaploadActionGrad)" stroke-width="8" stroke-linecap="round" fill="none"/>
           <path d="M54,40 L54,66 M44,56 L54,66 L64,56" stroke="#FFFFFF" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
         </svg>
       </div>
@@ -33,10 +143,163 @@ function createSnapLoadButton(): HTMLElement {
     </button>
   `;
 
-  // Apply scoped button styling inline to avoid CSS collisions with YouTube themes
+  const btn = container.querySelector(".snapload-download-btn") as HTMLButtonElement;
+  btn.addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    const videoUrl = window.location.href;
+    console.log("[SnapLoad Action] Triggering download for:", videoUrl);
+
+    btn.classList.add("downloading");
+    const label = btn.querySelector(".snapload-btn-label");
+    if (label) label.textContent = "Starting...";
+
+    api.runtime.sendMessage({
+      type: "START_DOWNLOAD",
+      payload: { url: videoUrl },
+    }, (response: any) => {
+      if (response && response.success) {
+        if (label) label.textContent = "Started ✓";
+      } else {
+        if (label) label.textContent = "Offline";
+      }
+      setTimeout(() => {
+        btn.classList.remove("downloading");
+        if (label) label.textContent = "SnapLoad";
+      }, 3000);
+    });
+  });
+
+  return container;
+}
+
+function injectActionButton() {
+  if (document.getElementById(ACTION_BUTTON_ID)) {
+    return;
+  }
+
+  const candidates = [
+    "#top-level-buttons-computed",
+    "#actions-inner #menu",
+    "#actions #top-level-buttons-computed",
+    "ytd-watch-metadata #actions #top-level-buttons-computed",
+    "#owner #subscribe-button",
+  ];
+
+  let targetElement: Element | null = null;
+  for (const selector of candidates) {
+    const el = document.querySelector(selector);
+    if (el) {
+      targetElement = el;
+      break;
+    }
+  }
+
+  if (targetElement) {
+    const button = createActionButton();
+    targetElement.appendChild(button);
+    console.log("[SnapLoad] Injected action bar button.");
+  }
+}
+
+// ==========================================
+// 3. YouTube Shorts Button
+// ==========================================
+function injectShortsButton() {
+  if (document.getElementById(SHORTS_BUTTON_ID)) {
+    return;
+  }
+
+  const activeReel = document.querySelector("ytd-reel-video-renderer[is-active] #actions") ||
+                     document.querySelector(".ytd-reel-player-overlay-renderer #actions");
+
+  if (!activeReel) {
+    return;
+  }
+
+  const container = document.createElement("div");
+  container.id = SHORTS_BUTTON_ID;
+  container.className = "snapload-shorts-container";
+  container.innerHTML = `
+    <button class="snapload-shorts-btn" title="Download Short with SnapLoad" type="button">
+      <div class="snapload-shorts-icon">
+        <svg viewBox="0 0 36 36" width="28" height="28" fill="none">
+          <path d="M 10 24 L 10 26 C 10 26.5 10.5 27 11 27 L 25 27 C 25.5 27 26 26.5 26 26 L 26 24" 
+                stroke="#FFFFFF" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M 18 9 L 18 21 M 13 16 L 18 21 L 23 16" 
+                stroke="#00F2FE" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </div>
+      <span class="snapload-shorts-label">SnapLoad</span>
+    </button>
+  `;
+
+  const btn = container.querySelector(".snapload-shorts-btn") as HTMLButtonElement;
+  btn.addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    const videoUrl = window.location.href;
+    const label = container.querySelector(".snapload-shorts-label");
+    if (label) label.textContent = "Sending...";
+
+    api.runtime.sendMessage({
+      type: "START_DOWNLOAD",
+      payload: { url: videoUrl },
+    }, (response: any) => {
+      if (response && response.success) {
+        if (label) label.textContent = "Started ✓";
+      } else {
+        if (label) label.textContent = "Offline";
+      }
+      setTimeout(() => {
+        if (label) label.textContent = "SnapLoad";
+      }, 3000);
+    });
+  });
+
+  activeReel.insertBefore(container, activeReel.firstChild);
+}
+
+// ==========================================
+// Inject Scoped Styles for All SnapLoad Buttons
+// ==========================================
+function injectGlobalStyles() {
+  if (document.getElementById("snapload-injected-styles")) return;
+
   const style = document.createElement("style");
+  style.id = "snapload-injected-styles";
   style.textContent = `
-    #${BUTTON_ID} {
+    /* SponsorBlock-style Player Control Button */
+    .snapload-ytp-btn {
+      display: inline-block !important;
+      width: 46px !important;
+      height: 100% !important;
+      vertical-align: top !important;
+      text-align: center !important;
+      cursor: pointer !important;
+      border: none !important;
+      background: transparent !important;
+      padding: 0 !important;
+      outline: none !important;
+      position: relative !important;
+      opacity: 0.9;
+      transition: opacity 0.2s ease, transform 0.15s ease;
+    }
+    .snapload-ytp-btn:hover {
+      opacity: 1 !important;
+      transform: scale(1.12);
+    }
+    .snapload-ytp-btn:active {
+      transform: scale(0.92);
+    }
+    .snapload-ytp-btn.downloading {
+      pointer-events: none;
+    }
+
+    /* Action Bar Pill Button */
+    #${ACTION_BUTTON_ID} {
       display: inline-flex;
       align-items: center;
       margin-left: 8px;
@@ -74,92 +337,101 @@ function createSnapLoadButton(): HTMLElement {
       color: #10B981;
       pointer-events: none;
     }
+
+    /* YouTube Shorts Button */
+    .snapload-shorts-container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      margin-bottom: 12px;
+    }
+    .snapload-shorts-btn {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+      background: transparent;
+      border: none;
+      color: #FFFFFF;
+      cursor: pointer;
+      outline: none;
+      font-size: 11px;
+      font-weight: 500;
+      transition: transform 0.2s;
+    }
+    .snapload-shorts-btn:hover {
+      transform: scale(1.1);
+    }
+    .snapload-shorts-icon {
+      width: 48px;
+      height: 48px;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.1);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      backdrop-filter: blur(8px);
+    }
+    .snapload-shorts-label {
+      text-shadow: 0 1px 3px rgba(0,0,0,0.8);
+    }
   `;
-  container.appendChild(style);
 
-  const btn = container.querySelector(".snapload-download-btn") as HTMLButtonElement;
-  btn.addEventListener("click", (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-
-    const videoUrl = window.location.href;
-    console.log("[SnapLoad Content] Triggering download for current URL:", videoUrl);
-
-    btn.classList.add("downloading");
-    const label = btn.querySelector(".snapload-btn-label");
-    if (label) label.textContent = "Sending...";
-
-    api.runtime.sendMessage({
-      type: "START_DOWNLOAD",
-      payload: { url: videoUrl },
-    }, (response: any) => {
-      if (response && response.success) {
-        if (label) label.textContent = "Started ✓";
-      } else {
-        if (label) label.textContent = "Check Engine";
-      }
-      setTimeout(() => {
-        btn.classList.remove("downloading");
-        if (label) label.textContent = "SnapLoad";
-      }, 3000);
-    });
-  });
-
-  return container;
+  document.head.appendChild(style);
 }
 
-function injectButton() {
-  if (!window.location.pathname.startsWith("/watch")) {
-    return;
-  }
+// ==========================================
+// Master Injection Function
+// ==========================================
+function injectAll() {
+  injectGlobalStyles();
 
-  if (document.getElementById(BUTTON_ID)) {
-    return; // Already present
-  }
+  const isWatch = window.location.pathname.startsWith("/watch");
+  const isShorts = window.location.pathname.startsWith("/shorts");
 
-  // Preferred target: the action buttons container next to Like / Share
-  const candidates = [
-    "#top-level-buttons-computed",
-    "#actions-inner #menu",
-    "#actions #top-level-buttons-computed",
-    "ytd-watch-metadata #actions #top-level-buttons-computed",
-    "#owner #subscribe-button",
-  ];
-
-  let targetElement: Element | null = null;
-  for (const selector of candidates) {
-    const el = document.querySelector(selector);
-    if (el) {
-      targetElement = el;
-      break;
-    }
+  if (isWatch) {
+    injectPlayerButton();
+    injectActionButton();
+    const shortsBtn = document.getElementById(SHORTS_BUTTON_ID);
+    if (shortsBtn) shortsBtn.remove();
+  } else if (isShorts) {
+    injectShortsButton();
+    const playerBtn = document.getElementById(PLAYER_BUTTON_ID);
+    if (playerBtn) playerBtn.remove();
+    const actionBtn = document.getElementById(ACTION_BUTTON_ID);
+    if (actionBtn) actionBtn.remove();
+  } else {
+    // Non-video page: clean up buttons
+    const playerBtn = document.getElementById(PLAYER_BUTTON_ID);
+    if (playerBtn) playerBtn.remove();
+    const actionBtn = document.getElementById(ACTION_BUTTON_ID);
+    if (actionBtn) actionBtn.remove();
+    const shortsBtn = document.getElementById(SHORTS_BUTTON_ID);
+    if (shortsBtn) shortsBtn.remove();
   }
+}
 
-  if (targetElement) {
-    const button = createSnapLoadButton();
-    targetElement.appendChild(button);
-    console.log("[SnapLoad Content] Download button successfully injected into:", targetElement);
+function handleNavigation() {
+  if (window.location.href !== lastUrl) {
+    lastUrl = window.location.href;
   }
+  // Schedule staggered injection attempts while YouTube finishes rendering components
+  injectAll();
+  setTimeout(injectAll, 400);
+  setTimeout(injectAll, 1000);
+  setTimeout(injectAll, 2000);
 }
 
 function initNavigationListener() {
-  window.addEventListener("yt-navigate-finish", () => {
-    if (!window.location.pathname.startsWith("/watch")) {
-      const existing = document.getElementById(BUTTON_ID);
-      if (existing) existing.remove();
-    } else if (window.location.href !== lastUrl) {
-      lastUrl = window.location.href;
-      // Re-evaluate button injection after YouTube DOM settles
-      setTimeout(injectButton, 300);
-      setTimeout(injectButton, 1000);
-    }
-  });
+  injectGlobalStyles();
 
-  // Fallback MutationObserver to handle dynamically loaded elements
+  window.addEventListener("yt-navigate-finish", handleNavigation);
+  window.addEventListener("yt-page-data-updated", handleNavigation);
+
+  // Debounced MutationObserver for dynamic YouTube SPA DOM updates
   observer = new MutationObserver(() => {
-    if (window.location.pathname.startsWith("/watch") && !document.getElementById(BUTTON_ID)) {
-      injectButton();
-    }
+    if (debounceTimer) clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(injectAll, 300);
   });
 
   observer.observe(document.body, {
@@ -167,12 +439,17 @@ function initNavigationListener() {
     subtree: true,
   });
 
-  // Initial attempt
-  injectButton();
-  setTimeout(injectButton, 1000);
+  // Fallback periodic timer in case YouTube reconstructs video controls without mutations on body
+  setInterval(() => {
+    if (window.location.pathname.startsWith("/watch") && !document.getElementById(PLAYER_BUTTON_ID)) {
+      injectPlayerButton();
+    }
+  }, 2000);
+
+  // Initial runs
+  handleNavigation();
 }
 
-// Start watching after document is interactive
 if (document.readyState === "loading") {
   document.addEventListener("DOMContentLoaded", initNavigationListener);
 } else {

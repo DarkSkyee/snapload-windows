@@ -52,6 +52,7 @@ export type InternalMessageType =
   | "START_DOWNLOAD"
   | "GET_ACTIVE_DOWNLOADS"
   | "CANCEL_DOWNLOAD"
+  | "DISMISS_DOWNLOAD"
   | "PING_ENGINE"
   | "ENGINE_STATUS";
 

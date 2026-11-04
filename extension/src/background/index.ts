@@ -38,6 +38,15 @@ function getOrCreateNativePort(): chrome.runtime.Port | null {
       nativePort = null;
       isConnecting = false;
 
+      // Mark all queued or running downloads as failed
+      for (const dl of activeDownloads.values()) {
+        if (!dl.completed && !dl.error) {
+          dl.status = "Failed";
+          dl.error = err || "SnapLoad Engine disconnected";
+        }
+      }
+      updateBadge();
+
       // Broadcast disconnect to any listening popups
       api.runtime.sendMessage({
         type: "ENGINE_STATUS",
@@ -191,9 +200,27 @@ function showNotification(title: string, message: string) {
 // Send download command to Rust Engine
 export function requestDownload(payload: StartDownloadPayload): string {
   const downloadId = "dl_" + Math.random().toString(36).substring(2, 10);
+
+  // Immediately track as Queued so popup UI displays active download item instantly
+  activeDownloads.set(downloadId, {
+    id: downloadId,
+    url: payload.url,
+    percent: 0,
+    speed: "",
+    eta: "",
+    status: "Queued",
+  });
+  updateBadge();
+
   const port = getOrCreateNativePort();
 
   if (!port) {
+    const item = activeDownloads.get(downloadId);
+    if (item) {
+      item.status = "Failed";
+      item.error = "SnapLoad Engine offline. Launch SnapLoad Setup.";
+    }
+    updateBadge();
     showNotification("SnapLoad Engine Not Connected", "Please ensure SnapLoad Windows Setup has been executed.");
     return downloadId;
   }
@@ -205,7 +232,17 @@ export function requestDownload(payload: StartDownloadPayload): string {
     payload: payload,
   };
 
-  port.postMessage(engineReq);
+  try {
+    port.postMessage(engineReq);
+  } catch (err: any) {
+    const item = activeDownloads.get(downloadId);
+    if (item) {
+      item.status = "Failed";
+      item.error = err?.message || "Failed to communicate with Engine";
+    }
+    updateBadge();
+  }
+
   return downloadId;
 }
 
@@ -243,6 +280,16 @@ api.runtime.onMessage.addListener((message: InternalMessage, _sender: any, sendR
           action: "cancel_download",
           payload: { download_id: message.payload.download_id },
         });
+      }
+      activeDownloads.delete(message.payload.download_id);
+      updateBadge();
+      sendResponse({ success: true });
+      return true;
+    }
+    case "DISMISS_DOWNLOAD": {
+      if (message.payload?.download_id) {
+        activeDownloads.delete(message.payload.download_id);
+        updateBadge();
       }
       sendResponse({ success: true });
       return true;

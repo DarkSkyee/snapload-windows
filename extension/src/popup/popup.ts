@@ -142,25 +142,36 @@ function refreshActiveDownloads() {
 
     for (const dl of response.downloads) {
       const item = document.createElement("div");
-      item.className = "download-item";
+      const isFailed = dl.status === "Failed" || !!dl.error;
+      const isCompleted = !!dl.completed;
+      item.className = `download-item ${isFailed ? "failed" : ""} ${isCompleted ? "completed" : ""}`.trim();
+
+      const percentDisplay = isFailed ? "Error" : (isCompleted ? "100%" : `${dl.percent}%`);
+      const statusText = isCompleted ? "Saved to Downloads ✓" : (isFailed ? `Failed: ${dl.error || "Error"}` : (dl.status || "Downloading"));
 
       const infoRow = document.createElement("div");
       infoRow.className = "download-info-row";
       infoRow.innerHTML = `
         <span class="download-url" title="${dl.url}">${dl.url}</span>
-        <span class="download-percent">${dl.percent}%</span>
+        <span class="download-percent" style="${isFailed ? 'color: #EF4444;' : (isCompleted ? 'color: #10B981;' : '')}">${percentDisplay}</span>
       `;
 
       const barBg = document.createElement("div");
       barBg.className = "progress-bar-bg";
-      barBg.innerHTML = `<div class="progress-bar-fill" style="width: ${dl.percent}%;"></div>`;
+      const barFillStyle = isFailed 
+        ? "background: #EF4444; width: 100%;" 
+        : (isCompleted ? "background: #10B981; width: 100%;" : `width: ${dl.percent}%;`);
+      barBg.innerHTML = `<div class="progress-bar-fill" style="${barFillStyle}"></div>`;
 
       const metaRow = document.createElement("div");
       metaRow.className = "download-meta-row";
-      const statusText = dl.completed ? "Saved ✓" : (dl.error || dl.status || "Downloading");
+      const actionLink = (!isCompleted && !isFailed) 
+        ? `<span class="cancel-link" data-id="${dl.id}">Cancel</span>`
+        : `<span class="dismiss-link" data-id="${dl.id}" style="color: #64748B; cursor: pointer;">Dismiss</span>`;
+
       metaRow.innerHTML = `
-        <span>${statusText} ${dl.speed ? "• " + dl.speed : ""} ${dl.eta ? "• ETA " + dl.eta : ""}</span>
-        ${!dl.completed && !dl.error ? `<span class="cancel-link" data-id="${dl.id}">Cancel</span>` : ""}
+        <span style="${isFailed ? 'color: #F87171;' : ''}">${statusText} ${dl.speed ? "• " + dl.speed : ""} ${dl.eta ? "• ETA " + dl.eta : ""}</span>
+        ${actionLink}
       `;
 
       item.appendChild(infoRow);
@@ -173,7 +184,17 @@ function refreshActiveDownloads() {
           api.runtime.sendMessage({
             type: "CANCEL_DOWNLOAD",
             payload: { download_id: dl.id },
-          });
+          }, () => refreshActiveDownloads());
+        });
+      }
+
+      const dismissBtn = item.querySelector(".dismiss-link");
+      if (dismissBtn) {
+        dismissBtn.addEventListener("click", () => {
+          api.runtime.sendMessage({
+            type: "DISMISS_DOWNLOAD",
+            payload: { download_id: dl.id },
+          }, () => refreshActiveDownloads());
         });
       }
 
