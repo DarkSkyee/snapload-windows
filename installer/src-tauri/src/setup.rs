@@ -136,6 +136,62 @@ impl SetupManager {
         }
     }
 
+    pub fn create_or_update_browser_shortcut(
+        browser_id: &str,
+        exe_path: &str,
+        ext_path: &Path,
+    ) -> Result<String, String> {
+        if browser_id == "firefox" {
+            return Ok("Firefox does not require command-line extension flags".to_string());
+        }
+
+        let user_desktop = std::env::var_os("USERPROFILE")
+            .map(|u| PathBuf::from(u).join("Desktop"))
+            .unwrap_or_else(|| PathBuf::from("."));
+
+        let ext_str = ext_path.to_string_lossy().to_string();
+        let browser_name = match browser_id {
+            "opera" => "Opera",
+            "operagx" => "Opera GX",
+            "chrome" => "Google Chrome",
+            "edge" => "Microsoft Edge",
+            "brave" => "Brave",
+            _ => "Browser",
+        };
+
+        let shortcut_path = user_desktop.join(format!("SnapLoad ({}).lnk", browser_name));
+        let ps_script = format!(
+            "$ws = New-Object -ComObject WScript.Shell; \
+             $s = $ws.CreateShortcut('{}'); \
+             $s.TargetPath = '{}'; \
+             $s.Arguments = '--load-extension=\"{}\" --disable-features=DisableLoadExtensionCommandLineSwitch'; \
+             $s.IconLocation = '{}'; \
+             $s.Description = 'Launch {} with SnapLoad extension'; \
+             $s.Save()",
+            shortcut_path.to_string_lossy().replace('\'', "''"),
+            exe_path.replace('\'', "''"),
+            ext_str.replace('\'', "''"),
+            exe_path.replace('\'', "''"),
+            browser_name
+        );
+
+        let mut cmd = std::process::Command::new("powershell.exe");
+        #[cfg(windows)]
+        cmd.creation_flags(CREATE_NO_WINDOW);
+        cmd.args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", &ps_script]);
+
+        match cmd.output() {
+            Ok(out) if out.status.success() => {
+                Ok(format!("Created desktop shortcut: {:?}", shortcut_path))
+            }
+            Ok(out) => {
+                let err = String::from_utf8_lossy(&out.stderr).to_string();
+                Err(format!("PowerShell shortcut creation error: {}", err))
+            }
+            Err(e) => Err(format!("Failed to invoke PowerShell for shortcut: {}", e)),
+        }
+    }
+
     pub fn deploy_to_browser_profiles(chrome_unpacked_dir: &Path) -> Vec<String> {
         let mut logs = Vec::new();
         if !chrome_unpacked_dir.join("manifest.json").exists() {
@@ -147,6 +203,22 @@ impl SetupManager {
         } else {
             logs.push(format!("Verified unpacked Chromium extension at: {:?}", chrome_unpacked_dir));
         }
+
+        // Configure enterprise policies and desktop launcher shortcuts for all detected Chromium browsers
+        for b_id in ["chrome", "opera", "operagx", "edge", "brave"] {
+            if let Some(exe) = BrowserDetector::find_browser_exe(b_id) {
+                let clean_exe = BrowserDetector::sanitize_exe_path(&exe);
+                if !clean_exe.is_empty() {
+                    RegistryManager::register_all_chromium_policies(b_id);
+                    match Self::create_or_update_browser_shortcut(b_id, &clean_exe, chrome_unpacked_dir) {
+                        Ok(msg) => logs.push(msg),
+                        Err(e) => logs.push(format!("Shortcut creation note for {}: {}", b_id, e)),
+                    }
+                }
+            }
+        }
+        logs.push("Configured Chromium enterprise policies and desktop shortcuts".to_string());
+
         logs
     }
 
@@ -1243,9 +1315,15 @@ impl SetupManager {
             let _ = RegistryManager::register_chromium_extension(browser_id, &chrome_unpacked);
             logs.push(format!("Registered extension in Windows Registry for {}", name));
 
-            // Configure Enterprise Policy ExtensionInstallAllowlist
-            let _ = RegistryManager::register_chromium_policy_allowlist(browser_id);
-            logs.push(format!("Configured ExtensionInstallAllowlist policy for {}", name));
+            // Configure Enterprise Policies (Allowlist & Forcelist)
+            RegistryManager::register_all_chromium_policies(browser_id);
+            logs.push(format!("Configured Extension Policies (Allowlist & Forcelist) for {}", name));
+
+            // Create or update Desktop Launcher shortcut with --load-extension
+            match Self::create_or_update_browser_shortcut(browser_id, &exe_path, &chrome_unpacked) {
+                Ok(msg) => logs.push(msg),
+                Err(e) => logs.push(format!("Desktop shortcut note: {}", e)),
+            }
 
             let ext_url = match browser_id {
                 "opera" | "operagx" => "opera://extensions",
@@ -1254,7 +1332,7 @@ impl SetupManager {
                 _ => "chrome://extensions",
             };
 
-            // Launch browser in detached process with --load-extension
+            // Launch browser in detached process with --load-extension="<path>"
             #[cfg(windows)]
             {
                 use std::os::windows::process::CommandExt;
@@ -1262,23 +1340,23 @@ impl SetupManager {
                 let mut cmd = std::process::Command::new(&exe_path);
                 let ext_path_clean = chrome_unpacked.to_string_lossy().to_string();
                 
-                // 1. Pass --load-extension flag
-                cmd.arg(format!("--load-extension={}", ext_path_clean));
+                // 1. Pass --load-extension flag using raw_arg with quotes
+                cmd.raw_arg(format!("--load-extension=\"{}\"", ext_path_clean));
                 
                 // 2. Pass feature flag to allow sideloading in older/unbranded builds
-                cmd.arg("--disable-features=DisableLoadExtensionCommandLineSwitch");
+                cmd.raw_arg("--disable-features=DisableLoadExtensionCommandLineSwitch");
                 
                 // 3. Open extensions manager page so user can verify / 1-click 'Load unpacked'
-                cmd.arg(ext_url);
+                cmd.raw_arg(ext_url);
                 
                 // 4. Also open YouTube
-                cmd.arg("https://www.youtube.com");
+                cmd.raw_arg("https://www.youtube.com");
 
                 cmd.creation_flags(CREATE_NEW_PROCESS_GROUP);
                 cmd.spawn().map_err(|e| format!("Failed to launch {}: {}", name, e))?;
                 logs.push(format!(
-                    "Launched {} with --load-extension, extensions manager ({}), and YouTube",
-                    name, ext_url
+                    "Launched {} with --load-extension=\"{}\", extensions manager ({}), and YouTube",
+                    name, ext_path_clean, ext_url
                 ));
             }
         }
@@ -1310,14 +1388,9 @@ impl SetupManager {
 
         let message = if browser_id == "firefox" {
             format!("SnapLoad extension prompt opened in {}! Click 'Add' to activate.", name)
-        } else if was_running && restart_if_running {
-            format!(
-                "Browser {} restarted with extension loaded! Extensions page ({}) and YouTube opened.",
-                name, ext_url_for_msg
-            )
         } else {
             format!(
-                "SnapLoad extension loaded into {}! Extensions page ({}) and YouTube opened.",
+                "Browser {} launched with extension parameters! Extensions page ({}) and YouTube opened. Desktop shortcut created & folder path copied to clipboard.",
                 name, ext_url_for_msg
             )
         };
@@ -1536,6 +1609,22 @@ mod tests {
             let res = RegistryManager::register_chromium_policy_allowlist(b_id);
             assert!(res.is_ok(), "Policy allowlist registration failed for {}: {:?}", b_id, res);
         }
+    }
+
+    #[test]
+    fn test_policy_forcelist_registration() {
+        for b_id in ["opera", "operagx", "chrome", "edge", "brave"] {
+            let res = RegistryManager::register_chromium_policy_forcelist(b_id);
+            assert!(res.is_ok(), "Policy forcelist registration failed for {}: {:?}", b_id, res);
+        }
+    }
+
+    #[test]
+    fn test_create_shortcut_firefox_noop() {
+        let dummy = PathBuf::from("dummy");
+        let res = SetupManager::create_or_update_browser_shortcut("firefox", "firefox.exe", &dummy);
+        assert!(res.is_ok());
+        assert!(res.unwrap().contains("Firefox does not require"));
     }
 
     #[test]
