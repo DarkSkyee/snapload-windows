@@ -15,6 +15,7 @@ interface DownloadState {
 
 const activeDownloads = new Map<string, DownloadState>();
 const cancelledDownloads = new Set<string>();
+const notifiedCancelled = new Set<string>();
 let nativePort: chrome.runtime.Port | null = null;
 let isConnecting = false;
 
@@ -87,7 +88,11 @@ function handleNativeMessage(response: EngineResponse<any>) {
     activeDownloads.delete(downloadId);
     updateBadge();
     if (response.type === "download_cancelled") {
-      showNotification("SnapLoad Download Cancelled", "Download was stopped.");
+      if (!notifiedCancelled.has(downloadId)) {
+        notifiedCancelled.add(downloadId);
+        showNotification("SnapLoad Download Cancelled", "Download was stopped.");
+        setTimeout(() => notifiedCancelled.delete(downloadId), 15000);
+      }
       setTimeout(() => cancelledDownloads.delete(downloadId), 15000);
     }
     // Relay event to active popup
@@ -188,7 +193,11 @@ function handleNativeMessage(response: EngineResponse<any>) {
         setTimeout(() => cancelledDownloads.delete(downloadId), 15000);
       }
       updateBadge();
-      showNotification("SnapLoad Download Cancelled", "Download was stopped.");
+      if (downloadId && !notifiedCancelled.has(downloadId)) {
+        notifiedCancelled.add(downloadId);
+        showNotification("SnapLoad Download Cancelled", "Download was stopped.");
+        setTimeout(() => notifiedCancelled.delete(downloadId), 15000);
+      }
       break;
     }
   }

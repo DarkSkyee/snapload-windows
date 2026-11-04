@@ -41,10 +41,10 @@ pub enum VideoQuality {
 impl VideoQuality {
     pub fn ytdl_format_selector(&self) -> &'static str {
         match self {
-            VideoQuality::Best => "bestvideo+bestaudio/best",
-            VideoQuality::P1080 => "bestvideo[height<=1080]+bestaudio/best[height<=1080]/best",
-            VideoQuality::P720 => "bestvideo[height<=720]+bestaudio/best[height<=720]/best",
-            VideoQuality::P480 => "bestvideo[height<=480]+bestaudio/best[height<=480]/best",
+            VideoQuality::Best => "bestvideo+bestaudio[ext=m4a]/bestvideo+bestaudio/best",
+            VideoQuality::P1080 => "bestvideo[height<=1080]+bestaudio[ext=m4a]/bestvideo[height<=1080]+bestaudio/best[height<=1080]/best",
+            VideoQuality::P720 => "bestvideo[height<=720]+bestaudio[ext=m4a]/bestvideo[height<=720]+bestaudio/best[height<=720]/best",
+            VideoQuality::P480 => "bestvideo[height<=480]+bestaudio[ext=m4a]/bestvideo[height<=480]+bestaudio/best[height<=480]/best",
         }
     }
 }

@@ -495,6 +495,7 @@ impl DownloadManager {
                 let _ = child.kill().await;
                 stdout_handle.abort();
                 stderr_handle.abort();
+                let _ = child.wait().await;
                 Err("cancelled")
             }
             res = child.wait() => Ok(res),
@@ -503,6 +504,8 @@ impl DownloadManager {
         if wait_result.is_err() {
             stdout_handle.abort();
             stderr_handle.abort();
+            let _ = child.wait().await;
+            tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
         } else {
             let _ = stdout_handle.await;
         }
@@ -520,6 +523,7 @@ impl DownloadManager {
                 "Download {} was successfully cancelled",
                 download_id
             ));
+            tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
             Self::cleanup_incomplete_files(&output_dir, &unique_prefix);
             let _ = response_tx
                 .send(EngineResponse::ok(

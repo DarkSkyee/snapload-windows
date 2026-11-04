@@ -64,7 +64,7 @@ function updateSelectors() {
   }
 }
 
-function setMediaType(type: "video" | "audio") {
+function setMediaType(type: "video" | "audio", save = true) {
   currentMediaType = type;
   if (type === "video") {
     typeVideoBtn.classList.add("active");
@@ -74,10 +74,29 @@ function setMediaType(type: "video" | "audio") {
     typeVideoBtn.classList.remove("active");
   }
   updateSelectors();
+  if (save) {
+    api.storage?.local?.set({ mediaType: type });
+  }
 }
 
 typeVideoBtn.addEventListener("click", () => setMediaType("video"));
 typeAudioBtn.addEventListener("click", () => setMediaType("audio"));
+
+formatSelect.addEventListener("change", () => {
+  if (currentMediaType === "video") {
+    api.storage?.local?.set({ videoFormat: formatSelect.value });
+  } else {
+    api.storage?.local?.set({ audioFormat: formatSelect.value });
+  }
+});
+
+qualitySelect.addEventListener("change", () => {
+  if (currentMediaType === "video") {
+    api.storage?.local?.set({ videoQuality: qualitySelect.value });
+  } else {
+    api.storage?.local?.set({ audioQuality: qualitySelect.value });
+  }
+});
 
 pasteBtn.addEventListener("click", async () => {
   try {
@@ -243,6 +262,27 @@ api.runtime.onMessage.addListener((message: any) => {
 // Initialize on popup open
 document.addEventListener("DOMContentLoaded", () => {
   updateSelectors();
+
+  // Restore saved preferences
+  try {
+    api.storage?.local?.get(
+      ["mediaType", "videoFormat", "videoQuality", "audioFormat", "audioQuality"],
+      (stored: any) => {
+        if (stored) {
+          if (stored.mediaType === "audio" || stored.mediaType === "video") {
+            setMediaType(stored.mediaType, false);
+          }
+          if (currentMediaType === "video") {
+            if (stored.videoFormat) formatSelect.value = stored.videoFormat;
+            if (stored.videoQuality) qualitySelect.value = stored.videoQuality;
+          } else {
+            if (stored.audioFormat) formatSelect.value = stored.audioFormat;
+            if (stored.audioQuality) qualitySelect.value = stored.audioQuality;
+          }
+        }
+      }
+    );
+  } catch (_) {}
 
   // Query active tab URL
   api.tabs.query({ active: true, currentWindow: true }, (tabs: any[]) => {

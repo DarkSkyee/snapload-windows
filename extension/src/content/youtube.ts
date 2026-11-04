@@ -63,19 +63,129 @@ function getLeftControls(): Element | null {
 }
 
 // ==========================================
-// 1. YouTube Player Control Bar Button & 3-Dots Options Menu
+// 1. User Preferences & Storage Sync
+// ==========================================
+interface ExtensionPrefs {
+  mediaType: "video" | "audio";
+  videoFormat: string;
+  videoQuality: string;
+  audioFormat: string;
+  audioQuality: string;
+}
+
+const currentPrefs: ExtensionPrefs = {
+  mediaType: "video",
+  videoFormat: "mp4",
+  videoQuality: "best",
+  audioFormat: "mp3",
+  audioQuality: "best",
+};
+
+function loadStoredPreferences() {
+  try {
+    api.storage?.local?.get(
+      ["mediaType", "videoFormat", "videoQuality", "audioFormat", "audioQuality"],
+      (stored: any) => {
+        if (stored) {
+          if (stored.mediaType) currentPrefs.mediaType = stored.mediaType;
+          if (stored.videoFormat) currentPrefs.videoFormat = stored.videoFormat;
+          if (stored.videoQuality) currentPrefs.videoQuality = stored.videoQuality;
+          if (stored.audioFormat) currentPrefs.audioFormat = stored.audioFormat;
+          if (stored.audioQuality) currentPrefs.audioQuality = stored.audioQuality;
+          updatePlayerLabels();
+        }
+      }
+    );
+  } catch (_) {}
+}
+
+try {
+  api.storage?.onChanged?.addListener((changes, area) => {
+    if (area === "local") {
+      if (changes.mediaType) currentPrefs.mediaType = changes.mediaType.newValue;
+      if (changes.videoFormat) currentPrefs.videoFormat = changes.videoFormat.newValue;
+      if (changes.videoQuality) currentPrefs.videoQuality = changes.videoQuality.newValue;
+      if (changes.audioFormat) currentPrefs.audioFormat = changes.audioFormat.newValue;
+      if (changes.audioQuality) currentPrefs.audioQuality = changes.audioQuality.newValue;
+      updatePlayerLabels();
+    }
+  });
+} catch (_) {}
+
+let isGlobalDismissBound = false;
+function ensureGlobalDismiss() {
+  if (isGlobalDismissBound) return;
+  isGlobalDismissBound = true;
+  document.addEventListener("click", (e) => {
+    const target = e.target as HTMLElement;
+    const container = document.getElementById(PLAYER_CONTAINER_ID);
+    if (container && !container.contains(target)) {
+      const menu = container.querySelector(`#${DROPDOWN_MENU_ID}`);
+      const optBtn = container.querySelector(`#${OPTIONS_BUTTON_ID}`);
+      if (menu) menu.classList.add("hidden");
+      if (optBtn) optBtn.setAttribute("aria-expanded", "false");
+    }
+  });
+}
+
+function updatePlayerLabels() {
+  const container = document.getElementById(PLAYER_CONTAINER_ID);
+  if (!container) return;
+
+  const btn = container.querySelector(`#${PLAYER_BUTTON_ID}`) as HTMLButtonElement | null;
+  const activeFmt = currentPrefs.mediaType === "audio" 
+    ? currentPrefs.audioFormat.toUpperCase() 
+    : currentPrefs.videoFormat.toUpperCase();
+  if (btn && !btn.classList.contains("downloading")) {
+    btn.setAttribute("title", `Download with SnapLoad (${activeFmt})`);
+  }
+
+  const videoItem = container.querySelector('[data-action="download-video"]');
+  if (videoItem) {
+    const titleSpan = videoItem.querySelector(".snapload-menu-title");
+    const badgeSpan = videoItem.querySelector(".snapload-menu-badge");
+    if (titleSpan) {
+      titleSpan.textContent = `Download ${currentPrefs.videoFormat.toUpperCase()} (Video)`;
+    }
+    if (badgeSpan) {
+      badgeSpan.textContent = currentPrefs.videoFormat.toUpperCase() + (currentPrefs.mediaType === "video" ? " • Default" : "");
+    }
+  }
+
+  const audioItem = container.querySelector('[data-action="download-audio"]');
+  if (audioItem) {
+    const titleSpan = audioItem.querySelector(".snapload-menu-title");
+    const badgeSpan = audioItem.querySelector(".snapload-menu-badge");
+    if (titleSpan) {
+      titleSpan.textContent = `Download ${currentPrefs.audioFormat.toUpperCase()} (Audio)`;
+    }
+    if (badgeSpan) {
+      badgeSpan.textContent = currentPrefs.audioFormat.toUpperCase() + (currentPrefs.mediaType === "audio" ? " • Default" : "");
+    }
+  }
+}
+
+// ==========================================
+// 2. YouTube Player Control Bar Button & 3-Dots Options Menu
 // ==========================================
 function createPlayerContainer(): HTMLElement {
+  ensureGlobalDismiss();
+  loadStoredPreferences();
+
   const container = document.createElement("div");
   container.id = PLAYER_CONTAINER_ID;
   container.className = "snapload-ytp-container";
+
+  const defaultFmt = currentPrefs.mediaType === "audio"
+    ? currentPrefs.audioFormat.toUpperCase()
+    : currentPrefs.videoFormat.toUpperCase();
 
   // 1. Main Download Button
   const btn = document.createElement("button");
   btn.id = PLAYER_BUTTON_ID;
   btn.className = "ytp-button snapload-ytp-btn";
   btn.type = "button";
-  btn.setAttribute("title", "Download with SnapLoad (MP4)");
+  btn.setAttribute("title", `Download with SnapLoad (${defaultFmt})`);
   btn.setAttribute("aria-label", "Download with SnapLoad");
   btn.innerHTML = `
     <svg height="100%" version="1.1" viewBox="0 0 36 36" width="100%">
@@ -119,29 +229,34 @@ function createPlayerContainer(): HTMLElement {
     </svg>
   `;
 
+  const videoFmtUpper = currentPrefs.videoFormat.toUpperCase();
+  const audioFmtUpper = currentPrefs.audioFormat.toUpperCase();
+  const isVideoDefault = currentPrefs.mediaType === "video";
+  const isAudioDefault = currentPrefs.mediaType === "audio";
+
   // 3. Dropdown Menu (English options)
   const menu = document.createElement("div");
   menu.id = DROPDOWN_MENU_ID;
   menu.className = "snapload-ytp-menu hidden";
   menu.innerHTML = `
     <div class="snapload-menu-header">Download Options</div>
-    <div class="snapload-menu-item" data-format="mp4">
+    <div class="snapload-menu-item" data-action="download-video">
       <div class="snapload-menu-item-left">
         <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
           <path d="M4 6.5C4 5.12 5.12 4 6.5 4h11C18.88 4 20 5.12 20 6.5v11c0 1.38-1.12 2.5-2.5 2.5h-11C5.12 20 4 18.88 4 17.5v-11zM10 8.5v7l6-3.5-6-3.5z"/>
         </svg>
-        <span>Download MP4 (Video)</span>
+        <span class="snapload-menu-title">Download ${videoFmtUpper} (Video)</span>
       </div>
-      <span class="snapload-menu-badge">MP4</span>
+      <span class="snapload-menu-badge">${videoFmtUpper}${isVideoDefault ? " • Default" : ""}</span>
     </div>
-    <div class="snapload-menu-item" data-format="mp3">
+    <div class="snapload-menu-item" data-action="download-audio">
       <div class="snapload-menu-item-left">
         <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
           <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/>
         </svg>
-        <span>Download MP3 (Audio)</span>
+        <span class="snapload-menu-title">Download ${audioFmtUpper} (Audio)</span>
       </div>
-      <span class="snapload-menu-badge audio">MP3</span>
+      <span class="snapload-menu-badge audio">${audioFmtUpper}${isAudioDefault ? " • Default" : ""}</span>
     </div>
   `;
 
@@ -155,28 +270,34 @@ function createPlayerContainer(): HTMLElement {
   };
 
   const openMenu = () => {
+    updatePlayerLabels();
     menu.classList.remove("hidden");
     optBtn.setAttribute("aria-expanded", "true");
   };
 
-  const triggerDownload = (format: "mp4" | "mp3") => {
+  const triggerDownload = (type: "video" | "audio") => {
     closeMenu();
     btn.classList.add("downloading");
-    btn.setAttribute("title", `Initiating ${format.toUpperCase()} download...`);
+
+    const isAudio = type === "audio";
+    const selectedFormat = isAudio ? (currentPrefs.audioFormat || "mp3") : (currentPrefs.videoFormat || "mp4");
+    const selectedQuality = isAudio ? (currentPrefs.audioQuality || "best") : (currentPrefs.videoQuality || "best");
+
+    btn.setAttribute("title", `Initiating ${selectedFormat.toUpperCase()} download...`);
 
     const videoUrl = getCanonicalVideoUrl();
-    console.log(`[SnapLoad Player] Starting ${format.toUpperCase()} download for:`, videoUrl);
+    console.log(`[SnapLoad Player] Starting ${selectedFormat.toUpperCase()} (${type}) download for:`, videoUrl);
 
     const payload: any = {
       url: videoUrl,
-      media_type: format === "mp3" ? "audio" : "video",
+      media_type: type,
     };
-    if (format === "mp3") {
-      payload.audio_format = "mp3";
-      payload.audio_quality = "best";
+    if (isAudio) {
+      payload.audio_format = selectedFormat;
+      payload.audio_quality = selectedQuality;
     } else {
-      payload.video_format = "mp4";
-      payload.video_quality = "best";
+      payload.video_format = selectedFormat;
+      payload.video_quality = selectedQuality;
     }
 
     api.runtime.sendMessage({
@@ -187,7 +308,7 @@ function createPlayerContainer(): HTMLElement {
         if (response && response.success) {
           if (normalIcon) normalIcon.style.display = "none";
           if (successIcon) successIcon.style.display = "block";
-          btn.setAttribute("title", `${format.toUpperCase()} Download Started ✓ (Saved to Downloads)`);
+          btn.setAttribute("title", `${selectedFormat.toUpperCase()} Download Started ✓ (Saved to Downloads)`);
         } else {
           if (normalIcon) normalIcon.style.display = "none";
           if (errorIcon) errorIcon.style.display = "block";
@@ -199,7 +320,7 @@ function createPlayerContainer(): HTMLElement {
           if (normalIcon) normalIcon.style.display = "block";
           if (successIcon) successIcon.style.display = "none";
           if (errorIcon) errorIcon.style.display = "none";
-          btn.setAttribute("title", "Download with SnapLoad (MP4)");
+          updatePlayerLabels();
         }, 3500);
       } catch (_) {}
     });
@@ -208,7 +329,7 @@ function createPlayerContainer(): HTMLElement {
   btn.addEventListener("click", (e) => {
     e.preventDefault();
     e.stopPropagation();
-    triggerDownload("mp4");
+    triggerDownload(currentPrefs.mediaType);
   });
 
   optBtn.addEventListener("click", (e) => {
@@ -221,30 +342,23 @@ function createPlayerContainer(): HTMLElement {
     }
   });
 
-  const mp4Option = menu.querySelector('[data-format="mp4"]');
-  if (mp4Option) {
-    mp4Option.addEventListener("click", (e) => {
+  const videoOption = menu.querySelector('[data-action="download-video"]');
+  if (videoOption) {
+    videoOption.addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation();
-      triggerDownload("mp4");
+      triggerDownload("video");
     });
   }
 
-  const mp3Option = menu.querySelector('[data-format="mp3"]');
-  if (mp3Option) {
-    mp3Option.addEventListener("click", (e) => {
+  const audioOption = menu.querySelector('[data-action="download-audio"]');
+  if (audioOption) {
+    audioOption.addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation();
-      triggerDownload("mp3");
+      triggerDownload("audio");
     });
   }
-
-  document.addEventListener("click", (e) => {
-    const target = e.target as HTMLElement;
-    if (!container.contains(target)) {
-      closeMenu();
-    }
-  });
 
   container.appendChild(btn);
   container.appendChild(optBtn);
@@ -439,7 +553,7 @@ function injectGlobalStyles() {
       /* Dropdown Menu Above Player Controls */
       .snapload-ytp-menu {
         position: absolute !important;
-        bottom: 52px !important;
+        bottom: calc(100% + 8px) !important;
         left: 0 !important;
         background: rgba(15, 23, 42, 0.97) !important;
         backdrop-filter: blur(16px) !important;

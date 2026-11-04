@@ -338,3 +338,12 @@ async fn test_cancel_download_state() {
     assert!(dm.is_cancelled("dl_test_1").await);
     assert!(!dm.is_cancelled("dl_test_2").await);
 }
+
+#[test]
+fn test_video_format_selector_prefers_m4a_audio() {
+    assert!(VideoQuality::Best.ytdl_format_selector().contains("bestaudio[ext=m4a]"));
+    assert!(VideoQuality::P1080.ytdl_format_selector().contains("bestaudio[ext=m4a]"));
+    assert!(VideoQuality::P720.ytdl_format_selector().contains("bestaudio[ext=m4a]"));
+    assert!(VideoQuality::P480.ytdl_format_selector().contains("bestaudio[ext=m4a]"));
+}
+
