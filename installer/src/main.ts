@@ -642,6 +642,9 @@ async function checkSetupUpdate(silent: boolean = false): Promise<SetupUpdateInf
   const doUpdateBtn = document.getElementById("btn-do-setup-update") as HTMLButtonElement;
   const headerBadge = document.getElementById("header-version-badge") as HTMLElement;
 
+  const statusMsg = document.getElementById("setup-update-status-msg") as HTMLElement;
+  if (statusMsg) statusMsg.textContent = "";
+
   if (btn) {
     btn.disabled = true;
     btn.innerHTML = `<span class="spinner" style="margin-right: 6px;"></span> Checking...`;
@@ -654,9 +657,19 @@ async function checkSetupUpdate(silent: boolean = false): Promise<SetupUpdateInf
 
     if (curBadge) curBadge.textContent = `v${res.current_version}`;
 
+    const splashVerChip = document.getElementById("splash-version-chip");
+    if (splashVerChip && res?.current_version) {
+      splashVerChip.textContent = `v${res.current_version} Setup`;
+    }
+
     if (res.error) {
-      if (descEl) descEl.textContent = `Update check: ${res.error}. Local setup is v${res.current_version}.`;
-      if (!silent) showToast(`Update check: ${res.error}`);
+      const isNotFound = res.error.includes("Not Found") || res.error.includes("No published releases");
+      if (descEl) {
+        descEl.textContent = isNotFound
+          ? `SnapLoad Setup is up to date (v${res.current_version}). No newer releases found on GitHub.`
+          : `Update check: ${res.error}. Local setup is v${res.current_version}.`;
+      }
+      if (!silent) showToast(isNotFound ? `Setup is up to date (v${res.current_version})` : `Update check: ${res.error}`);
       return res;
     }
 
@@ -696,6 +709,10 @@ async function checkSetupUpdate(silent: boolean = false): Promise<SetupUpdateInf
       if (doUpdateBtn) {
         doUpdateBtn.innerHTML = `<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg> Re-download / Repair Setup`;
         doUpdateBtn.disabled = false;
+      }
+      if (headerBadge) {
+        headerBadge.textContent = `v${res.current_version}`;
+        headerBadge.classList.remove("update-pulse");
       }
       if (!silent) showToast(`Setup is up to date (v${res.current_version})`);
     }
@@ -949,14 +966,22 @@ function initLaunchSplash() {
   const dismiss = () => {
     if (dismissed) return;
     dismissed = true;
+    window.removeEventListener("keydown", onKeyDown);
     splashEl.classList.add("fade-out");
     setTimeout(() => {
       splashEl.style.display = "none";
     }, 450);
   };
 
-  // Click anywhere to immediately dismiss splash
+  const onKeyDown = (e: KeyboardEvent) => {
+    if (e.key === "Escape" || e.key === "Enter" || e.key === " ") {
+      dismiss();
+    }
+  };
+
+  // Click anywhere or press key to immediately dismiss splash
   splashEl.addEventListener("click", dismiss);
+  window.addEventListener("keydown", onKeyDown);
 
   // Progressive animation sequence (total ~1.65s)
   setTimeout(() => {
@@ -985,4 +1010,15 @@ window.addEventListener("DOMContentLoaded", () => {
   initBrowserDetection();
   fetchPaths();
   checkSetupUpdate(true);
+
+  // Check if launched after a self-update
+  invoke<boolean>("is_updated_launch")
+    .then((wasUpdated) => {
+      if (wasUpdated) {
+        setTimeout(() => {
+          showToast("SnapLoad Setup was successfully updated to the latest version!");
+        }, 1800);
+      }
+    })
+    .catch(() => {});
 });
