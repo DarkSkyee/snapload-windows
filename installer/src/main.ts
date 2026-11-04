@@ -513,11 +513,11 @@ async function updateStep3ActiveBrowserCard() {
     if (step3Title) step3Title.textContent = "Ready on YouTube";
     if (step3Desc) step3Desc.textContent = "SnapLoad download buttons appear immediately on video pages.";
   } else {
-    if (guideBrowserDesc) guideBrowserDesc.textContent = `If ${b.name} requires Developer Mode to load unpacked extensions, follow these 3 quick steps:`;
+    if (guideBrowserDesc) guideBrowserDesc.textContent = `If ${b.name} requires Developer Mode to load unpacked extensions, follow these 3 quick steps (extension path is already in your clipboard!):`;
     if (step1Title) step1Title.textContent = "Open Extensions Tab";
     if (step1Desc) step1Desc.innerHTML = `Open the extensions page in your browser (<code>${extUrl}</code>).`;
     if (step2Title) step2Title.textContent = "Turn on Developer Mode";
-    if (step2Desc) step2Desc.innerHTML = `Switch the <em>Developer mode</em> toggle in the top-right corner to <strong>ON</strong>.`;
+    if (step2Desc) step2Desc.innerHTML = `Switch the <em>Developer mode</em> (PL: <em>Tryb programisty</em>) toggle in the top-right corner to <strong>ON</strong>.`;
     if (step3Title) step3Title.textContent = "Load Unpacked & Paste";
     if (step3Desc) step3Desc.innerHTML = `Click <em>Load unpacked</em> (PL: <em>Załaduj rozpakowane</em>), press <kbd>Ctrl+V</kbd> and select folder.`;
   }
@@ -586,8 +586,8 @@ document.getElementById("btn-auto-install")?.addEventListener("click", async () 
     if (statusBox && statusTitle && statusDesc) {
       statusBox.className = "auto-install-status-box success";
       if (statusIcon) statusIcon.textContent = "✓";
-      statusTitle.textContent = `Extension active in ${res.browser_name}!`;
-      statusDesc.textContent = `${res.message} Browser launched with YouTube. Extension path copied to clipboard!`;
+      statusTitle.textContent = `Launched ${res.browser_name} with SnapLoad!`;
+      statusDesc.textContent = `${res.message}`;
     }
 
     renderStep3BrowserPicker();
@@ -620,7 +620,8 @@ document.getElementById("btn-open-active-ext-folder")?.addEventListener("click",
   showToast("Opened extension directory");
 });
 
-document.getElementById("btn-copy-ext-path")?.addEventListener("click", async () => {
+document.getElementById("btn-copy-ext-path")?.addEventListener("click", async (e) => {
+  const target = e.currentTarget as HTMLButtonElement | null;
   const paths = await fetchPaths();
   const folder = step3ActiveBrowserId === "firefox"
     ? paths.firefox_xpi
@@ -628,6 +629,11 @@ document.getElementById("btn-copy-ext-path")?.addEventListener("click", async ()
   await invoke("copy_to_clipboard", { text: folder }).catch(() => {});
   if (navigator.clipboard) {
     await navigator.clipboard.writeText(folder).catch(() => {});
+  }
+  if (target) {
+    const orig = target.innerHTML;
+    target.innerHTML = "✓ Copied!";
+    setTimeout(() => { target.innerHTML = orig; }, 2000);
   }
   showToast("Copied extension path to clipboard");
 });
@@ -651,7 +657,8 @@ document.getElementById("btn-quick-open-ext-page")?.addEventListener("click", as
   }
 });
 
-document.getElementById("btn-quick-copy-path")?.addEventListener("click", async () => {
+document.getElementById("btn-quick-copy-path")?.addEventListener("click", async (e) => {
+  const target = e.currentTarget as HTMLButtonElement | null;
   const paths = await fetchPaths();
   const folder = step3ActiveBrowserId === "firefox"
     ? paths.firefox_xpi
@@ -659,6 +666,11 @@ document.getElementById("btn-quick-copy-path")?.addEventListener("click", async 
   await invoke("copy_to_clipboard", { text: folder }).catch(() => {});
   if (navigator.clipboard) {
     await navigator.clipboard.writeText(folder).catch(() => {});
+  }
+  if (target) {
+    const orig = target.innerHTML;
+    target.innerHTML = "✓ Copied to clipboard!";
+    setTimeout(() => { target.innerHTML = orig; }, 2000);
   }
   showToast("Copied extension path to clipboard");
 });
