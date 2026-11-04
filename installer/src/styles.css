@@ -198,10 +198,10 @@ body {
   gap: 16px;
 }
 
-.hidden {
-  display: none !important;
-}
-
+.hidden,
+#setup-update-available-badge.hidden,
+#setup-update-action-box.hidden,
+.setup-update-action-box.hidden,
 .wizard-step.hidden {
   display: none !important;
 }
