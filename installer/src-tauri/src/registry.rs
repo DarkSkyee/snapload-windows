@@ -354,7 +354,38 @@ impl RegistryManager {
         Ok(())
     }
 
+    pub fn clean_obsolete_forcelist_policies(browser_id: &str) {
+        let subkeys = match browser_id {
+            "chrome" => vec![
+                r"Software\Policies\Google\Chrome\ExtensionInstallForcelist".to_string(),
+            ],
+            "edge" => vec![
+                r"Software\Policies\Microsoft\Edge\ExtensionInstallForcelist".to_string(),
+            ],
+            "brave" => vec![
+                r"Software\Policies\BraveSoftware\Brave\ExtensionInstallForcelist".to_string(),
+            ],
+            "opera" => vec![
+                r"Software\Policies\Opera Software\ExtensionInstallForcelist".to_string(),
+                r"Software\Policies\Opera Software\Opera Stable\ExtensionInstallForcelist".to_string(),
+            ],
+            "operagx" => vec![
+                r"Software\Policies\Opera Software\ExtensionInstallForcelist".to_string(),
+                r"Software\Policies\Opera Software\Opera GX Stable\ExtensionInstallForcelist".to_string(),
+            ],
+            _ => vec![],
+        };
+
+        let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+        let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
+        for sub in &subkeys {
+            let _ = hkcu.delete_subkey_all(sub);
+            let _ = hklm.delete_subkey_all(sub);
+        }
+    }
+
     pub fn register_all_chromium_policies(browser_id: &str) {
+        Self::clean_obsolete_forcelist_policies(browser_id);
         let _ = Self::register_chromium_policy_allowlist(browser_id);
         let _ = Self::register_chromium_policy_sources(browser_id);
         let _ = Self::register_chromium_developer_mode_policy(browser_id);
