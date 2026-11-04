@@ -30,14 +30,14 @@ function getCanonicalVideoUrl(): string {
 }
 
 /**
- * Locates YouTube active player right-side controls container, filtering out inline preview player.
+ * Locates YouTube active player left-side controls container, filtering out inline preview player.
  */
-function getRightControls(): Element | null {
+function getLeftControls(): Element | null {
   try {
     const moviePlayer = document.getElementById("movie_player");
     if (moviePlayer) {
-      const right = moviePlayer.querySelector(".ytp-right-controls");
-      if (right) return right;
+      const left = moviePlayer.querySelector(".ytp-left-controls");
+      if (left) return left;
     }
 
     const player =
@@ -45,11 +45,11 @@ function getRightControls(): Element | null {
       document.querySelector(".html5-video-player");
 
     if (player) {
-      const right = player.querySelector(".ytp-right-controls");
-      if (right) return right;
+      const left = player.querySelector(".ytp-left-controls");
+      if (left) return left;
     }
 
-    const all = document.querySelectorAll(".ytp-right-controls");
+    const all = document.querySelectorAll(".ytp-left-controls");
     for (const el of all) {
       if (!el.closest("#inline-preview-player")) {
         return el;
@@ -142,37 +142,24 @@ function createPlayerButton(): HTMLElement {
 
 function injectPlayerButton() {
   try {
-    const rightControls = getRightControls();
-    if (!rightControls) {
+    const leftControls = getLeftControls();
+    if (!leftControls) {
       return;
     }
 
     const existing = document.getElementById(PLAYER_BUTTON_ID);
     if (existing) {
-      if (rightControls.contains(existing)) {
+      if (leftControls.contains(existing)) {
         return; // Already present in current controls, do not mutate DOM
       }
       existing.remove();
     }
 
     const btn = createPlayerButton();
+    // In left-controls, append to the end (right after time display / chapters)
+    leftControls.appendChild(btn);
 
-    // Position before settings button or subtitles button if child of rightControls
-    const settingsBtn = rightControls.querySelector(".ytp-settings-button");
-    const subBtn = rightControls.querySelector(".ytp-subtitles-button");
-    const target = (settingsBtn && settingsBtn.parentNode === rightControls)
-      ? settingsBtn
-      : (subBtn && subBtn.parentNode === rightControls)
-        ? subBtn
-        : null;
-
-    if (target) {
-      rightControls.insertBefore(btn, target);
-    } else {
-      rightControls.appendChild(btn);
-    }
-
-    console.log("[SnapLoad] Injected player control bar button.");
+    console.log("[SnapLoad] Injected player control bar button in left controls.");
   } catch (err) {
     console.debug("[SnapLoad] Non-fatal error injecting player button:", err);
   }
@@ -375,8 +362,10 @@ function injectGlobalStyles() {
     style.textContent = `
       /* SponsorBlock-style Player Control Button */
       .snapload-ytp-btn {
-        display: inline-block !important;
-        width: 46px !important;
+        display: inline-flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        width: 44px !important;
         height: 100% !important;
         vertical-align: top !important;
         text-align: center !important;
@@ -384,6 +373,7 @@ function injectGlobalStyles() {
         border: none !important;
         background: transparent !important;
         padding: 0 !important;
+        margin-left: 6px !important;
         outline: none !important;
         position: relative !important;
         opacity: 0.9;
@@ -498,7 +488,9 @@ function injectAll() {
 
     if (isWatch) {
       injectPlayerButton();
-      injectActionButton();
+      // Remove any action button next to subscribe button per user request
+      const actionBtn = document.getElementById(ACTION_BUTTON_ID);
+      if (actionBtn) actionBtn.remove();
       const shortsBtn = document.getElementById(SHORTS_BUTTON_ID);
       if (shortsBtn) shortsBtn.remove();
     } else if (isShorts) {
@@ -576,11 +568,13 @@ function initNavigationListener() {
         const isShorts = window.location.pathname.startsWith("/shorts");
 
         if (isWatch) {
-          const rightControls = getRightControls();
+          const leftControls = getLeftControls();
           const existing = document.getElementById(PLAYER_BUTTON_ID);
-          if (!rightControls || !existing || !rightControls.contains(existing)) {
+          if (!leftControls || !existing || !leftControls.contains(existing)) {
             injectPlayerButton();
           }
+          const actionBtn = document.getElementById(ACTION_BUTTON_ID);
+          if (actionBtn) actionBtn.remove();
         } else if (isShorts) {
           injectShortsButton();
         }
