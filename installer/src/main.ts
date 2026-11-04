@@ -581,7 +581,7 @@ document.getElementById("btn-auto-install")?.addEventListener("click", async () 
 
     btn.disabled = false;
     btnTitle.textContent = `✓ Extension Configured for ${res.browser_name}!`;
-    btnSubtitle.textContent = "Skróty utworzone • Preferencje profilu skonfigurowane";
+    btnSubtitle.textContent = "Integracja gotowa • Preferencje profilu skonfigurowane";
 
     if (statusBox && statusTitle && statusDesc) {
       statusBox.className = "auto-install-status-box success";
