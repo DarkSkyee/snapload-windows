@@ -76,6 +76,11 @@ async fn download_and_launch_setup_update(
 }
 
 #[tauri::command]
+fn is_updated_launch() -> bool {
+    std::env::args().any(|arg| arg == "--updated")
+}
+
+#[tauri::command]
 fn exit_app() {
     std::process::exit(0);
 }
@@ -157,7 +162,7 @@ fn launch_browser_with_extension(browser_id: String) -> Result<String, String> {
                 cmd.arg(xpi_path.to_string_lossy().to_string());
                 cmd.creation_flags(0x08000000);
                 cmd.spawn().map_err(|e| format!("Failed to launch Firefox: {}", e))?;
-                return Ok("Opened extension in Firefox — click 'Add' to install!".to_string());
+                return Ok("Opened extension in Firefox - click 'Add' to install!".to_string());
             }
         } else {
             return Err("Firefox executable not found.".to_string());
@@ -249,6 +254,8 @@ fn open_folder_and_select(path: String) -> Result<(), String> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    UpdateChecker::cleanup_old_setup_binary();
+
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
             detect_browsers,
@@ -259,6 +266,7 @@ pub fn run() {
             check_updates,
             check_setup_update,
             download_and_launch_setup_update,
+            is_updated_launch,
             exit_app,
             verify_installation,
             uninstall_snapload,
