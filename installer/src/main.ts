@@ -49,6 +49,19 @@ interface ExtensionPaths {
   downloads_dir: string;
 }
 
+interface SetupUpdateInfo {
+  current_version: string;
+  latest_version: string;
+  update_available: boolean;
+  release_name: string;
+  release_notes: string;
+  download_url?: string;
+  asset_url?: string;
+  published_at?: string;
+  file_size_bytes?: number;
+  error?: string;
+}
+
 // Crisp Vector Brand SVGs for Browsers
 const BROWSER_SVGS: Record<string, string> = {
   chrome: `
@@ -614,8 +627,152 @@ document.getElementById("finish-btn")?.addEventListener("click", () => {
   }, 400);
 });
 
+// Setup Self-Updater State & Actions
+let cachedSetupUpdateInfo: SetupUpdateInfo | null = null;
+
+async function checkSetupUpdate(silent: boolean = false): Promise<SetupUpdateInfo | null> {
+  const descEl = document.getElementById("setup-updater-desc") as HTMLElement;
+  const btn = document.getElementById("btn-check-setup-update") as HTMLButtonElement;
+  const curBadge = document.getElementById("setup-cur-ver-badge") as HTMLElement;
+  const availBadge = document.getElementById("setup-update-available-badge") as HTMLElement;
+  const actionBox = document.getElementById("setup-update-action-box") as HTMLElement;
+  const latestVerText = document.getElementById("setup-latest-ver-text") as HTMLElement;
+  const releaseDate = document.getElementById("setup-release-date") as HTMLElement;
+  const releaseNotes = document.getElementById("setup-release-notes") as HTMLElement;
+  const doUpdateBtn = document.getElementById("btn-do-setup-update") as HTMLButtonElement;
+  const headerBadge = document.getElementById("header-version-badge") as HTMLElement;
+
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = `<span class="spinner" style="margin-right: 6px;"></span> Checking...`;
+  }
+  if (descEl && !silent) descEl.textContent = "Checking GitHub for newer releases of SnapLoad Setup...";
+
+  try {
+    const res = await invoke<SetupUpdateInfo>("check_setup_update");
+    cachedSetupUpdateInfo = res;
+
+    if (curBadge) curBadge.textContent = `v${res.current_version}`;
+
+    if (res.error) {
+      if (descEl) descEl.textContent = `Update check: ${res.error}. Local setup is v${res.current_version}.`;
+      if (!silent) showToast(`Update check: ${res.error}`);
+      return res;
+    }
+
+    if (res.update_available) {
+      if (availBadge) availBadge.classList.remove("hidden");
+      if (actionBox) actionBox.classList.remove("hidden");
+      if (latestVerText) latestVerText.textContent = `v${res.latest_version}`;
+      if (releaseDate && res.published_at) {
+        const dateStr = new Date(res.published_at).toLocaleDateString();
+        releaseDate.textContent = `(Released ${dateStr})`;
+      }
+      if (releaseNotes) {
+        releaseNotes.textContent = res.release_notes || "New version release available with bug fixes and enhancements.";
+      }
+      if (descEl) descEl.textContent = `A newer version of SnapLoad Setup (v${res.latest_version}) is available on GitHub!`;
+      if (doUpdateBtn) {
+        doUpdateBtn.innerHTML = `<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg> Download & Update to v${res.latest_version}`;
+        doUpdateBtn.disabled = false;
+      }
+      if (headerBadge) {
+        headerBadge.textContent = `Update v${res.latest_version} available!`;
+        headerBadge.classList.add("update-pulse");
+      }
+      if (!silent) showToast(`New setup update v${res.latest_version} available!`);
+    } else {
+      if (availBadge) availBadge.classList.add("hidden");
+      if (actionBox) actionBox.classList.remove("hidden");
+      if (latestVerText) latestVerText.textContent = `v${res.latest_version} (Current)`;
+      if (releaseDate && res.published_at) {
+        const dateStr = new Date(res.published_at).toLocaleDateString();
+        releaseDate.textContent = `(Released ${dateStr})`;
+      }
+      if (releaseNotes) {
+        releaseNotes.textContent = res.release_notes || "SnapLoad Setup is running the latest available build.";
+      }
+      if (descEl) descEl.textContent = `SnapLoad Setup is up to date (v${res.current_version}). You have the latest version.`;
+      if (doUpdateBtn) {
+        doUpdateBtn.innerHTML = `<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg> Re-download / Repair Setup`;
+        doUpdateBtn.disabled = false;
+      }
+      if (!silent) showToast(`Setup is up to date (v${res.current_version})`);
+    }
+
+    return res;
+  } catch (err: any) {
+    if (descEl) descEl.textContent = `Unable to connect to GitHub update service: ${err}`;
+    if (!silent) showToast(`Error checking updates: ${err}`);
+    return null;
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg> Check Setup Update`;
+    }
+  }
+}
+
+async function doDownloadAndLaunchSetupUpdate() {
+  const doUpdateBtn = document.getElementById("btn-do-setup-update") as HTMLButtonElement;
+  const statusMsg = document.getElementById("setup-update-status-msg") as HTMLElement;
+
+  if (doUpdateBtn) {
+    doUpdateBtn.disabled = true;
+    doUpdateBtn.innerHTML = `<span class="spinner" style="margin-right: 8px;"></span> Downloading Setup Update...`;
+  }
+  if (statusMsg) {
+    statusMsg.textContent = "Downloading snapload-setup.exe from GitHub releases...";
+  }
+
+  try {
+    const downloadUrl = cachedSetupUpdateInfo?.download_url || "https://github.com/DarkSkyee/snapload-windows/releases/latest/download/snapload-setup.exe";
+    const assetUrl = cachedSetupUpdateInfo?.asset_url;
+    const tag = cachedSetupUpdateInfo ? `v${cachedSetupUpdateInfo.latest_version}` : "v1.0.0";
+
+    await invoke<string>("download_and_launch_setup_update", {
+      downloadUrl,
+      assetUrl,
+      tag,
+    });
+
+    if (statusMsg) {
+      statusMsg.textContent = "Update downloaded! Launching updated setup...";
+    }
+    showToast("Setup update downloaded! Launching new version...");
+
+    // Wait 1.2 seconds and exit current setup
+    setTimeout(async () => {
+      await invoke("exit_app").catch(() => {});
+    }, 1200);
+  } catch (err: any) {
+    if (doUpdateBtn) {
+      doUpdateBtn.disabled = false;
+      doUpdateBtn.innerHTML = `Retry Setup Download`;
+    }
+    if (statusMsg) {
+      statusMsg.textContent = `Download error: ${err}`;
+    }
+    showToast(`Update error: ${err}`);
+  }
+}
+
+document.getElementById("btn-check-setup-update")?.addEventListener("click", () => {
+  checkSetupUpdate(false);
+});
+
+document.getElementById("btn-do-setup-update")?.addEventListener("click", () => {
+  doDownloadAndLaunchSetupUpdate();
+});
+
+document.getElementById("header-version-badge")?.addEventListener("click", () => {
+  switchTab("updates");
+  checkSetupUpdate(false);
+});
+
 // Updates Tab
 async function runUpdateCheck() {
+  checkSetupUpdate(true);
   const engineMsg = document.getElementById("engine-update-msg") as HTMLElement;
   const ytdlpMsg = document.getElementById("ytdlp-update-msg") as HTMLElement;
   const ffmpegMsg = document.getElementById("ffmpeg-update-msg") as HTMLElement;
@@ -781,8 +938,51 @@ document.getElementById("uninstall-btn")?.addEventListener("click", async () => 
   }
 });
 
+// Opening Launch Splash Animation
+function initLaunchSplash() {
+  const splashEl = document.getElementById("launch-splash");
+  const splashProgressBar = document.getElementById("splash-progress-bar");
+  const splashStatusText = document.getElementById("splash-status-text");
+  if (!splashEl) return;
+
+  let dismissed = false;
+  const dismiss = () => {
+    if (dismissed) return;
+    dismissed = true;
+    splashEl.classList.add("fade-out");
+    setTimeout(() => {
+      splashEl.style.display = "none";
+    }, 450);
+  };
+
+  // Click anywhere to immediately dismiss splash
+  splashEl.addEventListener("click", dismiss);
+
+  // Progressive animation sequence (total ~1.65s)
+  setTimeout(() => {
+    if (splashProgressBar) splashProgressBar.style.width = "35%";
+    if (splashStatusText) splashStatusText.textContent = "Initializing SnapLoad environment...";
+  }, 100);
+
+  setTimeout(() => {
+    if (splashProgressBar) splashProgressBar.style.width = "75%";
+    if (splashStatusText) splashStatusText.textContent = "Detecting browser integrations...";
+  }, 650);
+
+  setTimeout(() => {
+    if (splashProgressBar) splashProgressBar.style.width = "100%";
+    if (splashStatusText) splashStatusText.textContent = "Ready!";
+  }, 1250);
+
+  setTimeout(() => {
+    dismiss();
+  }, 1650);
+}
+
 // Initialize on DOM ready
 window.addEventListener("DOMContentLoaded", () => {
+  initLaunchSplash();
   initBrowserDetection();
   fetchPaths();
+  checkSetupUpdate(true);
 });
