@@ -104,10 +104,8 @@ fn get_paths() -> ExtensionPaths {
 fn open_url(url: String) -> Result<(), String> {
     #[cfg(windows)]
     {
-        use std::os::windows::process::CommandExt;
         let mut cmd = std::process::Command::new("explorer.exe");
         cmd.arg(&url);
-        cmd.creation_flags(0x08000000);
         cmd.spawn().map_err(|e| format!("Failed to open URL: {}", e))?;
         Ok(())
     }
@@ -121,7 +119,6 @@ fn open_url(url: String) -> Result<(), String> {
 fn open_folder(path: String) -> Result<(), String> {
     #[cfg(windows)]
     {
-        use std::os::windows::process::CommandExt;
         let target = if path.is_empty() {
             SetupManager::get_app_dir().to_string_lossy().to_string()
         } else {
@@ -129,7 +126,6 @@ fn open_folder(path: String) -> Result<(), String> {
         };
         let mut cmd = std::process::Command::new("explorer.exe");
         cmd.arg(&target);
-        cmd.creation_flags(0x08000000);
         cmd.spawn().map_err(|e| format!("Failed to open folder: {}", e))?;
         Ok(())
     }
@@ -158,9 +154,10 @@ fn launch_browser_with_extension(browser_id: String) -> Result<String, String> {
             #[cfg(windows)]
             {
                 use std::os::windows::process::CommandExt;
+                const CREATE_NEW_PROCESS_GROUP: u32 = 0x00000200;
                 let mut cmd = std::process::Command::new(&clean_exe);
                 cmd.arg(xpi_path.to_string_lossy().to_string());
-                cmd.creation_flags(0x08000000);
+                cmd.creation_flags(CREATE_NEW_PROCESS_GROUP);
                 cmd.spawn().map_err(|e| format!("Failed to launch Firefox: {}", e))?;
                 return Ok("Opened extension in Firefox - click 'Add' to install!".to_string());
             }
@@ -178,11 +175,12 @@ fn launch_browser_with_extension(browser_id: String) -> Result<String, String> {
         #[cfg(windows)]
         {
             use std::os::windows::process::CommandExt;
+            const CREATE_NEW_PROCESS_GROUP: u32 = 0x00000200;
             let mut cmd = std::process::Command::new(&clean_exe);
-            cmd.arg(format!("--load-extension={}", ext_path_str));
-            cmd.arg("--disable-features=DisableLoadExtensionCommandLineSwitch");
-            cmd.arg("https://www.youtube.com");
-            cmd.creation_flags(0x08000000);
+            cmd.raw_arg(format!("--load-extension=\"{}\"", ext_path_str));
+            cmd.raw_arg("--disable-features=DisableLoadExtensionCommandLineSwitch");
+            cmd.raw_arg("https://www.youtube.com");
+            cmd.creation_flags(CREATE_NEW_PROCESS_GROUP);
             cmd.spawn().map_err(|e| format!("Failed to launch {}: {}", browser_id, e))?;
             Ok(format!("Launched {} with SnapLoad loaded!", browser_id))
         }
@@ -221,9 +219,10 @@ fn open_browser_extensions_page(browser_id: String) -> Result<String, String> {
         #[cfg(windows)]
         {
             use std::os::windows::process::CommandExt;
+            const CREATE_NEW_PROCESS_GROUP: u32 = 0x00000200;
             let mut cmd = std::process::Command::new(&clean_exe);
-            cmd.arg(url);
-            cmd.creation_flags(0x08000000);
+            cmd.raw_arg(url);
+            cmd.creation_flags(CREATE_NEW_PROCESS_GROUP);
             cmd.spawn().map_err(|e| format!("Failed to open extensions page: {}", e))?;
             Ok(format!("Opened {}", url))
         }
@@ -241,10 +240,8 @@ fn open_browser_extensions_page(browser_id: String) -> Result<String, String> {
 fn open_folder_and_select(path: String) -> Result<(), String> {
     #[cfg(windows)]
     {
-        use std::os::windows::process::CommandExt;
         let mut cmd = std::process::Command::new("explorer.exe");
         cmd.arg(format!("/select,{}", path));
-        cmd.creation_flags(0x08000000);
         cmd.spawn().map_err(|e| format!("Failed to open Explorer: {}", e))?;
         Ok(())
     }
