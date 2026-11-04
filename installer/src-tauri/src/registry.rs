@@ -249,6 +249,43 @@ impl RegistryManager {
         Ok(())
     }
 
+    pub fn register_chromium_policy_allowlist(browser_id: &str) -> Result<(), String> {
+        let ext_id = "ikkidkbojpedpeaomipgioiigmjlpflg";
+        let subkeys = match browser_id {
+            "chrome" => vec![
+                r"Software\Policies\Google\Chrome\ExtensionInstallAllowlist".to_string(),
+            ],
+            "edge" => vec![
+                r"Software\Policies\Microsoft\Edge\ExtensionInstallAllowlist".to_string(),
+            ],
+            "brave" => vec![
+                r"Software\Policies\BraveSoftware\Brave\ExtensionInstallAllowlist".to_string(),
+            ],
+            "opera" => vec![
+                r"Software\Policies\Opera Software\ExtensionInstallAllowlist".to_string(),
+                r"Software\Policies\Opera Software\Opera Stable\ExtensionInstallAllowlist".to_string(),
+            ],
+            "operagx" => vec![
+                r"Software\Policies\Opera Software\ExtensionInstallAllowlist".to_string(),
+                r"Software\Policies\Opera Software\Opera GX Stable\ExtensionInstallAllowlist".to_string(),
+            ],
+            _ => vec![],
+        };
+
+        let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+        let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
+
+        for subkey in subkeys {
+            if let Ok((key, _)) = hkcu.create_subkey(&subkey) {
+                let _ = key.set_value("1", &ext_id);
+            }
+            if let Ok((key, _)) = hklm.create_subkey(&subkey) {
+                let _ = key.set_value("1", &ext_id);
+            }
+        }
+        Ok(())
+    }
+
     pub fn check_native_host_registration(browser_id: &str) -> (bool, Option<String>) {
         let subkeys = Self::get_subkeys_for_browser(browser_id);
         if subkeys.is_empty() {
@@ -314,6 +351,12 @@ impl RegistryManager {
             format!(r"Software\Opera Software\Opera GX Stable\Extensions\ikkidkbojpedpeaomipgioiigmjlpflg"),
             format!(r"Software\Opera Software\Opera GX\Extensions\ikkidkbojpedpeaomipgioiigmjlpflg"),
             format!(r"Software\Opera Software\Extensions\ikkidkbojpedpeaomipgioiigmjlpflg"),
+            format!(r"Software\Policies\Google\Chrome\ExtensionInstallAllowlist"),
+            format!(r"Software\Policies\Microsoft\Edge\ExtensionInstallAllowlist"),
+            format!(r"Software\Policies\BraveSoftware\Brave\ExtensionInstallAllowlist"),
+            format!(r"Software\Policies\Opera Software\ExtensionInstallAllowlist"),
+            format!(r"Software\Policies\Opera Software\Opera Stable\ExtensionInstallAllowlist"),
+            format!(r"Software\Policies\Opera Software\Opera GX Stable\ExtensionInstallAllowlist"),
         ];
 
         let hkcu = RegKey::predef(HKEY_CURRENT_USER);

@@ -169,7 +169,8 @@ fn launch_browser_with_extension(browser_id: String) -> Result<String, String> {
         }
     }
 
-    let ext_path = SetupManager::get_chromium_ext_dir();
+    let ext_path = SetupManager::ensure_chromium_ext_deployed()
+        .map_err(|e| format!("Could not prepare extension: {}", e))?;
     let ext_path_str = ext_path.to_string_lossy().to_string();
 
     if let Some(exe) = browser_exe {
@@ -179,6 +180,7 @@ fn launch_browser_with_extension(browser_id: String) -> Result<String, String> {
             use std::os::windows::process::CommandExt;
             let mut cmd = std::process::Command::new(&clean_exe);
             cmd.arg(format!("--load-extension={}", ext_path_str));
+            cmd.arg("--disable-features=DisableLoadExtensionCommandLineSwitch");
             cmd.arg("https://www.youtube.com");
             cmd.creation_flags(0x08000000);
             cmd.spawn().map_err(|e| format!("Failed to launch {}: {}", browser_id, e))?;
