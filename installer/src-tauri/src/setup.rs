@@ -139,24 +139,52 @@ impl SetupManager {
     pub fn cleanup_desktop_shortcuts() -> Vec<String> {
         let mut logs = Vec::new();
         let mut desktop_dirs = Vec::new();
+
         if let Some(user) = std::env::var_os("USERPROFILE") {
             let u_path = PathBuf::from(&user);
             desktop_dirs.push(u_path.join("Desktop"));
             desktop_dirs.push(u_path.join("OneDrive").join("Desktop"));
+            desktop_dirs.push(u_path.join("OneDrive - Personal").join("Desktop"));
+            desktop_dirs.push(u_path.join("Pulpit"));
+            desktop_dirs.push(u_path.join("OneDrive").join("Pulpit"));
+            desktop_dirs.push(u_path.join("OneDrive - Personal").join("Pulpit"));
         }
         if let Some(public) = std::env::var_os("PUBLIC") {
-            desktop_dirs.push(PathBuf::from(public).join("Desktop"));
+            desktop_dirs.push(PathBuf::from(&public).join("Desktop"));
+            desktop_dirs.push(PathBuf::from(&public).join("Pulpit"));
         }
 
-        for d in desktop_dirs {
+        // Check Windows registry for redirected Desktop path
+        #[cfg(windows)]
+        {
+            use winreg::enums::HKEY_CURRENT_USER;
+            use winreg::RegKey;
+            let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+            if let Ok(folders) = hkcu.open_subkey(r"Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders") {
+                if let Ok(reg_desktop) = folders.get_value::<String, _>("Desktop") {
+                    let expanded = if let Some(user) = std::env::var_os("USERPROFILE") {
+                        reg_desktop.replace("%USERPROFILE%", &user.to_string_lossy())
+                    } else {
+                        reg_desktop
+                    };
+                    let p = PathBuf::from(expanded);
+                    if !desktop_dirs.contains(&p) {
+                        desktop_dirs.push(p);
+                    }
+                }
+            }
+        }
+
+        for d in &desktop_dirs {
             if !d.exists() {
                 continue;
             }
-            if let Ok(entries) = std::fs::read_dir(&d) {
+            if let Ok(entries) = std::fs::read_dir(d) {
                 for entry in entries.flatten() {
                     let path = entry.path();
                     if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                        if name.starts_with("SnapLoad") && name.ends_with(".lnk") {
+                        let lower = name.to_lowercase();
+                        if lower.ends_with(".lnk") && (lower.starts_with("snapload") || lower.contains("snapload")) {
                             if Self::force_remove_file(&path) {
                                 logs.push(format!("Removed desktop shortcut: {:?}", path));
                             }
@@ -165,6 +193,46 @@ impl SetupManager {
                 }
             }
         }
+
+        // Also clean up any previously modified browser shortcuts on Desktop by stripping --load-extension
+        let ps_clean = r#"
+            $ws = New-Object -ComObject WScript.Shell;
+            $deskDirs = @(
+                [Environment]::GetFolderPath('Desktop'),
+                [Environment]::GetFolderPath('CommonDesktopDirectory'),
+                "$HOME\Desktop",
+                "$env:PUBLIC\Desktop",
+                "$HOME\OneDrive\Desktop",
+                "$HOME\OneDrive - Personal\Desktop"
+            );
+            foreach ($d in $deskDirs) {
+                if ($d -and (Test-Path $d)) {
+                    Get-ChildItem -Path $d -Filter "*.lnk" -ErrorAction SilentlyContinue | ForEach-Object {
+                        try {
+                            $name = $_.Name.ToLower();
+                            if ($name -like "*snapload*.lnk") {
+                                Remove-Item -LiteralPath $_.FullName -Force -ErrorAction SilentlyContinue;
+                            } else {
+                                $sc = $ws.CreateShortcut($_.FullName);
+                                $args = '' + $sc.Arguments;
+                                if ($args -like "*--load-extension=*") {
+                                    $newArgs = $args.Replace('--disable-features=DisableLoadExtensionCommandLineSwitch', '') -replace '--load-extension="[^"]*"', '' -replace "--load-extension='[^']*'", '' -replace '--load-extension=\S+', '';
+                                    $sc.Arguments = $newArgs.Trim();
+                                    $sc.Save();
+                                }
+                            }
+                        } catch {}
+                    }
+                }
+            }
+        "#;
+
+        let mut cmd = std::process::Command::new("powershell.exe");
+        #[cfg(windows)]
+        cmd.creation_flags(CREATE_NO_WINDOW);
+        cmd.args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", ps_clean]);
+        let _ = cmd.output();
+
         logs
     }
 
@@ -1185,12 +1253,21 @@ impl SetupManager {
         let cleaned_sc = Self::cleanup_desktop_shortcuts();
         logs.extend(cleaned_sc);
 
+        let mut sm_dirs = Vec::new();
         if let Some(sm) = std::env::var_os("APPDATA").map(|u| PathBuf::from(u).join(r"Microsoft\Windows\Start Menu\Programs")) {
+            sm_dirs.push(sm);
+        }
+        if let Some(pd) = std::env::var_os("ProgramData").map(|u| PathBuf::from(u).join(r"Microsoft\Windows\Start Menu\Programs")) {
+            sm_dirs.push(pd);
+        }
+
+        for sm in sm_dirs {
             if let Ok(entries) = std::fs::read_dir(&sm) {
                 for entry in entries.flatten() {
                     let path = entry.path();
                     if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                        if name.starts_with("SnapLoad") && name.ends_with(".lnk") {
+                        let lower = name.to_lowercase();
+                        if lower.ends_with(".lnk") && (lower.starts_with("snapload") || lower.contains("snapload")) {
                             let _ = Self::force_remove_file(&path);
                             logs.push(format!("Removed Start Menu shortcut: {:?}", path));
                         }
@@ -1871,6 +1948,20 @@ mod tests {
     fn test_cleanup_desktop_shortcuts_does_not_panic() {
         let logs = SetupManager::cleanup_desktop_shortcuts();
         let _ = logs;
+    }
+
+    #[test]
+    fn test_cleanup_desktop_shortcuts_removes_case_variations() {
+        if let Some(user) = std::env::var_os("USERPROFILE") {
+            let desktop = PathBuf::from(user).join("Desktop");
+            if desktop.exists() {
+                let dummy_file = desktop.join("snapload_test_case_variant.lnk");
+                let _ = std::fs::write(&dummy_file, b"dummy lnk");
+                assert!(dummy_file.exists());
+                let _ = SetupManager::cleanup_desktop_shortcuts();
+                assert!(!dummy_file.exists(), "Dummy case-variant shortcut must be removed by cleanup");
+            }
+        }
     }
 
     #[test]
