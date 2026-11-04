@@ -21,7 +21,6 @@ impl Default for EngineConfig {
         let download_dir = if let Some(user_profile) = std::env::var_os("USERPROFILE") {
             let mut p = PathBuf::from(user_profile);
             p.push("Downloads");
-            p.push("SnapLoad");
             p
         } else {
             PathBuf::from("downloads")
@@ -56,7 +55,15 @@ impl EngineConfig {
                 if let Ok(mut file) = File::open(&path) {
                     let mut content = String::new();
                     if file.read_to_string(&mut content).is_ok() {
-                        if let Ok(cfg) = serde_json::from_str::<EngineConfig>(&content) {
+                        if let Ok(mut cfg) = serde_json::from_str::<EngineConfig>(&content) {
+                            if cfg.download_directory.ends_with("SnapLoad") {
+                                if let Some(parent) = cfg.download_directory.parent() {
+                                    if parent.ends_with("Downloads") {
+                                        cfg.download_directory = parent.to_path_buf();
+                                        let _ = cfg.save();
+                                    }
+                                }
+                            }
                             return cfg;
                         }
                     }

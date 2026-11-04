@@ -200,6 +200,38 @@ impl DependencyManager {
             )))
         }
     }
+
+    pub async fn auto_download_ytdlp() -> Option<PathBuf> {
+        let local_app_data = std::env::var_os("LOCALAPPDATA")?;
+        let mut dest_dir = PathBuf::from(local_app_data);
+        dest_dir.push("SnapLoad");
+        dest_dir.push("bin");
+        let _ = std::fs::create_dir_all(&dest_dir);
+        let dest_file = dest_dir.join("yt-dlp.exe");
+
+        let mut cmd = Command::new("curl.exe");
+        #[cfg(windows)]
+        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+        cmd.args([
+            "-s",
+            "-L",
+            "-f",
+            "-o",
+            dest_file.to_str().unwrap_or_default(),
+            "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe",
+        ]);
+
+        if let Ok(status) = cmd.status().await {
+            if status.success()
+                && dest_file.exists()
+                && dest_file.metadata().map(|m| m.len() > 1_000_000).unwrap_or(false)
+            {
+                Logger::info(&format!("Auto-downloaded yt-dlp to {:?}", dest_file));
+                return Some(dest_file);
+            }
+        }
+        None
+    }
 }
 
 /// Helper to check PATH for executable

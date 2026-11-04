@@ -234,12 +234,21 @@ impl DownloadManager {
         let ytdlp_path = match DependencyManager::find_ytdlp(&config) {
             Some(p) => p,
             None => {
-                let _ = response_tx.send(EngineResponse::err(
-                    &download_id,
-                    "DEPENDENCY_MISSING",
-                    "yt-dlp is not installed or could not be found. Please run SnapLoad Setup to install dependencies.",
-                )).await;
-                return;
+                Logger::warn(&format!(
+                    "yt-dlp not found locally for download {}. Attempting automated download...",
+                    download_id
+                ));
+                match DependencyManager::auto_download_ytdlp().await {
+                    Some(p) => p,
+                    None => {
+                        let _ = response_tx.send(EngineResponse::err(
+                            &download_id,
+                            "DEPENDENCY_MISSING",
+                            "yt-dlp is not installed and automatic download failed. Please run SnapLoad Setup to configure dependencies.",
+                        )).await;
+                        return;
+                    }
+                }
             }
         };
 
