@@ -57,6 +57,10 @@ if ($LASTEXITCODE -ne 0) {
 Pop-Location
 Pop-Location
 
+# 5. Generate Release Manifest
+Write-Host "`n[5/5] Updating Release Manifest with artifact hashes..." -ForegroundColor Yellow
+& "$root\scripts\release\generate_manifest.ps1"
+
 Write-Host "`n==========================================" -ForegroundColor Green
 Write-Host "  SnapLoad Windows Build Succeeded!" -ForegroundColor Green
 Write-Host "==========================================" -ForegroundColor Green
