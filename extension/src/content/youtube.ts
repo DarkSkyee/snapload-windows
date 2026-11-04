@@ -34,21 +34,26 @@ function getCanonicalVideoUrl(): string {
  */
 function getRightControls(): Element | null {
   try {
-    const all = document.querySelectorAll(".ytp-right-controls");
-    for (const el of all) {
-      if (!el.closest("#inline-preview-player")) {
-        return el;
-      }
+    const moviePlayer = document.getElementById("movie_player");
+    if (moviePlayer) {
+      const right = moviePlayer.querySelector(".ytp-right-controls");
+      if (right) return right;
     }
 
     const player =
-      document.querySelector("#movie_player:not([hidden])") ||
       document.querySelector(".html5-video-player:not(#inline-preview-player)") ||
       document.querySelector(".html5-video-player");
 
     if (player) {
       const right = player.querySelector(".ytp-right-controls");
       if (right) return right;
+    }
+
+    const all = document.querySelectorAll(".ytp-right-controls");
+    for (const el of all) {
+      if (!el.closest("#inline-preview-player")) {
+        return el;
+      }
     }
   } catch (_) {}
   return null;
@@ -244,35 +249,31 @@ function injectActionButton() {
     const isWatch = window.location.pathname.startsWith("/watch");
     if (!isWatch) return;
 
-    // Use only top-level container locations that don't disrupt internal Polymer shadow trees
-    const candidates = [
-      "#actions #actions-inner #menu",
-      "#actions #actions-inner",
-      "#actions #top-level-buttons-computed",
-      "ytd-watch-metadata #actions #top-level-buttons-computed",
-    ];
+    // Isolate SnapLoad action pill outside ytd-menu-renderer Polymer tree
+    // to prevent calculateSize crashes and preserve SponsorBlock/native buttons
+    const actionsContainer =
+      document.querySelector("ytd-watch-metadata #actions") ||
+      document.querySelector("#actions");
 
-    let targetElement: Element | null = null;
-    for (const selector of candidates) {
-      const el = document.querySelector(selector);
-      if (el) {
-        targetElement = el;
-        break;
-      }
-    }
-
-    if (!targetElement) return;
+    if (!actionsContainer) return;
 
     const existing = document.getElementById(ACTION_BUTTON_ID);
     if (existing) {
-      if (targetElement.contains(existing)) {
-        return; // Already present, avoid re-inserting
+      if (actionsContainer.contains(existing)) {
+        return; // Already present in container
       }
       existing.remove();
     }
 
     const button = createActionButton();
-    targetElement.appendChild(button);
+    // Insert before actions-inner (ytd-menu-renderer) so it is an external sibling
+    const innerMenu = actionsContainer.querySelector("#actions-inner") || actionsContainer.firstElementChild;
+    if (innerMenu) {
+      actionsContainer.insertBefore(button, innerMenu);
+    } else {
+      actionsContainer.appendChild(button);
+    }
+
     console.log("[SnapLoad] Injected action bar button.");
   } catch (err) {
     console.debug("[SnapLoad] Non-fatal error injecting action button:", err);
@@ -541,9 +542,25 @@ function initNavigationListener() {
 
     const targetNode = document.body || document.documentElement;
     if (targetNode) {
+      let lastRun = 0;
+      let scheduled = false;
+      const throttledInject = () => {
+        const now = Date.now();
+        if (now - lastRun >= 350) {
+          lastRun = now;
+          injectAll();
+        } else if (!scheduled) {
+          scheduled = true;
+          setTimeout(() => {
+            scheduled = false;
+            lastRun = Date.now();
+            injectAll();
+          }, 350 - (now - lastRun));
+        }
+      };
+
       observer = new MutationObserver(() => {
-        if (debounceTimer) clearTimeout(debounceTimer);
-        debounceTimer = setTimeout(injectAll, 250);
+        throttledInject();
       });
 
       observer.observe(targetNode, {
@@ -579,4 +596,3 @@ if (document.readyState === "loading") {
 } else {
   initNavigationListener();
 }
-

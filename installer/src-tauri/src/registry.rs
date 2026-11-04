@@ -68,17 +68,13 @@ impl RegistryManager {
 
         let mut allowed_origins = vec![
             "chrome-extension://ikkidkbojpedpeaomipgioiigmjlpflg/".to_string(),
-            "extension://ikkidkbojpedpeaomipgioiigmjlpflg/".to_string(),
-            "opera-extension://ikkidkbojpedpeaomipgioiigmjlpflg/".to_string(),
             "chrome-extension://fmkfjmpdcflidoafkijcnafjmmdcjfck/".to_string(),
             "chrome-extension://ohoalmkigaipobmpanfbceocpiciajgg/".to_string(),
         ];
 
-        // Add dynamic path-derived unpacked extension IDs
+        // Add dynamic path-derived unpacked extension IDs (Chromium requires chrome-extension:// format)
         for id in compute_path_extension_ids(&chrom_dir) {
             allowed_origins.push(format!("chrome-extension://{}/", id));
-            allowed_origins.push(format!("opera-extension://{}/", id));
-            allowed_origins.push(format!("extension://{}/", id));
         }
 
         allowed_origins.sort();
