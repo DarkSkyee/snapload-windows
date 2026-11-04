@@ -1,7 +1,7 @@
 use crate::browser::BrowserDetector;
 use crate::registry::RegistryManager;
 use serde::{Deserialize, Serialize};
-use std::fs::{create_dir_all, remove_dir_all};
+use std::fs::create_dir_all;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 use tokio::time::timeout;
@@ -134,81 +134,8 @@ impl SetupManager {
         }
     }
 
-    pub fn deploy_to_browser_profiles(chrome_unpacked_dir: &Path) -> Vec<String> {
-        let mut deployed = Vec::new();
-        let ext_id = "ikkidkbojpedpeaomipgioiigmjlpflg";
-        let version_tag = "1.0.0_0";
-
-        let mut targets: Vec<(&str, PathBuf)> = Vec::new();
-
-        // 1. Opera Stable & Opera GX
-        if let Some(appdata) = std::env::var_os("APPDATA") {
-            let opera_dir = PathBuf::from(&appdata)
-                .join("Opera Software")
-                .join("Opera Stable")
-                .join("Default")
-                .join("Extensions")
-                .join(ext_id)
-                .join(version_tag);
-            targets.push(("Opera Stable", opera_dir));
-
-            let operagx_dir = PathBuf::from(&appdata)
-                .join("Opera Software")
-                .join("Opera GX Stable")
-                .join("Default")
-                .join("Extensions")
-                .join(ext_id)
-                .join(version_tag);
-            targets.push(("Opera GX", operagx_dir));
-        }
-
-        // 2. Google Chrome, Microsoft Edge, Brave Browser
-        if let Some(local) = std::env::var_os("LOCALAPPDATA") {
-            let chrome_dir = PathBuf::from(&local)
-                .join("Google")
-                .join("Chrome")
-                .join("User Data")
-                .join("Default")
-                .join("Extensions")
-                .join(ext_id)
-                .join(version_tag);
-            targets.push(("Google Chrome", chrome_dir));
-
-            let edge_dir = PathBuf::from(&local)
-                .join("Microsoft")
-                .join("Edge")
-                .join("User Data")
-                .join("Default")
-                .join("Extensions")
-                .join(ext_id)
-                .join(version_tag);
-            targets.push(("Microsoft Edge", edge_dir));
-
-            let brave_dir = PathBuf::from(&local)
-                .join("BraveSoftware")
-                .join("Brave-Browser")
-                .join("User Data")
-                .join("Default")
-                .join("Extensions")
-                .join(ext_id)
-                .join(version_tag);
-            targets.push(("Brave Browser", brave_dir));
-        }
-
-        for (name, target_dir) in targets {
-            if let Some(ext_parent) = target_dir.parent() {
-                if let Some(default_profile) = ext_parent.parent() {
-                    if default_profile.exists() {
-                        let _ = create_dir_all(&target_dir);
-                        if let Ok(_) = copy_dir_recursive(chrome_unpacked_dir, &target_dir) {
-                            deployed.push(format!("Deployed extension files to {} profile: {:?}", name, target_dir));
-                        }
-                    }
-                }
-            }
-        }
-
-        deployed
+    pub fn deploy_to_browser_profiles(_chrome_unpacked_dir: &Path) -> Vec<String> {
+        vec!["Unpacked Chromium extension ready in SnapLoad directory".to_string()]
     }
 
     pub async fn run_install(options: InstallOptions) -> Result<InstallResult, String> {
@@ -708,17 +635,155 @@ impl SetupManager {
         }
     }
 
+    pub fn force_remove_file(path: &Path) -> bool {
+        if !path.exists() {
+            return false;
+        }
+        if let Ok(meta) = std::fs::metadata(path) {
+            let mut perms = meta.permissions();
+            if perms.readonly() {
+                perms.set_readonly(false);
+                let _ = std::fs::set_permissions(path, perms);
+            }
+        }
+        std::fs::remove_file(path).is_ok()
+    }
+
+    pub fn force_remove_dir_all(dir: &Path) -> bool {
+        if !dir.exists() {
+            return false;
+        }
+        // Recursively reset readonly flag on everything and delete children
+        if let Ok(entries) = std::fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                let p = entry.path();
+                if p.is_dir() {
+                    let _ = Self::force_remove_dir_all(&p);
+                } else {
+                    let _ = Self::force_remove_file(&p);
+                }
+            }
+        }
+        if std::fs::remove_dir_all(dir).is_ok() {
+            return true;
+        }
+        #[cfg(windows)]
+        {
+            let mut cmd = std::process::Command::new("cmd.exe");
+            cmd.args(["/C", "rd", "/S", "/Q", &dir.to_string_lossy()]);
+            cmd.creation_flags(CREATE_NO_WINDOW);
+            let _ = cmd.output();
+        }
+        !dir.exists()
+    }
+
+    pub fn clean_extension_from_chromium_profile(profile_path: &Path, ext_id: &str) {
+        // 1. Clean from Preferences JSON
+        let prefs_file = profile_path.join("Preferences");
+        if prefs_file.exists() {
+            if let Ok(content) = std::fs::read_to_string(&prefs_file) {
+                if let Ok(mut json) = serde_json::from_str::<serde_json::Value>(&content) {
+                    let mut modified = false;
+
+                    if let Some(settings) = json.pointer_mut("/extensions/settings") {
+                        if let Some(map) = settings.as_object_mut() {
+                            if map.remove(ext_id).is_some() {
+                                modified = true;
+                            }
+                        }
+                    }
+
+                    if let Some(pinned) = json.pointer_mut("/extensions/pinned_extensions") {
+                        if let Some(arr) = pinned.as_array_mut() {
+                            let orig_len = arr.len();
+                            arr.retain(|v| v.as_str().map(|s| s != ext_id).unwrap_or(true));
+                            if arr.len() != orig_len {
+                                modified = true;
+                            }
+                        }
+                    }
+
+                    if let Some(toolbar) = json.pointer_mut("/extensions/toolbar") {
+                        if let Some(arr) = toolbar.as_array_mut() {
+                            let orig_len = arr.len();
+                            arr.retain(|v| v.as_str().map(|s| s != ext_id).unwrap_or(true));
+                            if arr.len() != orig_len {
+                                modified = true;
+                            }
+                        }
+                    }
+
+                    if modified {
+                        if let Ok(serialized) = serde_json::to_string_pretty(&json) {
+                            let _ = std::fs::write(&prefs_file, serialized);
+                        }
+                    }
+                }
+            }
+        }
+
+        // 2. Also clean Secure Preferences if present
+        let sec_prefs_file = profile_path.join("Secure Preferences");
+        if sec_prefs_file.exists() {
+            if let Ok(content) = std::fs::read_to_string(&sec_prefs_file) {
+                if let Ok(mut json) = serde_json::from_str::<serde_json::Value>(&content) {
+                    let mut modified = false;
+                    if let Some(settings) = json.pointer_mut("/extensions/settings") {
+                        if let Some(map) = settings.as_object_mut() {
+                            if map.remove(ext_id).is_some() {
+                                modified = true;
+                            }
+                        }
+                    }
+                    if modified {
+                        if let Ok(serialized) = serde_json::to_string_pretty(&json) {
+                            let _ = std::fs::write(&sec_prefs_file, serialized);
+                        }
+                    }
+                }
+            }
+        }
+
+        // 3. Remove all extension subdirectories
+        let subdirs = [
+            "Extensions",
+            "Local Extension Settings",
+            "Extension State",
+            "Extension Rules",
+            "Extension Scripts",
+            "Sync Extension Settings",
+        ];
+        for sub in subdirs {
+            let target = profile_path.join(sub).join(ext_id);
+            if target.exists() {
+                let _ = Self::force_remove_dir_all(&target);
+            }
+        }
+    }
+
     pub fn uninstall() -> Result<Vec<String>, String> {
         let mut logs = Vec::new();
 
-        // 1. Terminate running SnapLoad engine and utility processes
+        // 1. Terminate running SnapLoad engine, utilities, and browser processes to unlock files & profiles
         #[cfg(windows)]
         {
-            let mut cmd = std::process::Command::new("taskkill.exe");
-            cmd.args(["/F", "/IM", "snapload-engine.exe", "/IM", "ffmpeg.exe", "/IM", "yt-dlp.exe"]);
-            cmd.creation_flags(CREATE_NO_WINDOW);
-            let _ = cmd.output();
-            std::thread::sleep(std::time::Duration::from_millis(500));
+            let procs = [
+                "snapload-engine.exe",
+                "ffmpeg.exe",
+                "yt-dlp.exe",
+                "opera.exe",
+                "chrome.exe",
+                "msedge.exe",
+                "brave.exe",
+                "firefox.exe",
+            ];
+            for p in procs {
+                let mut cmd = std::process::Command::new("taskkill.exe");
+                cmd.args(["/F", "/IM", p]);
+                cmd.creation_flags(CREATE_NO_WINDOW);
+                let _ = cmd.output();
+            }
+            std::thread::sleep(std::time::Duration::from_millis(600));
         }
 
         // 2. Unregister all registry keys
@@ -728,70 +793,100 @@ impl SetupManager {
             removed_keys.len()
         ));
 
-        // 3. Remove extension files from all browser profiles
+        // 3. Deep clean extension from all browser profiles
         let ext_id = "ikkidkbojpedpeaomipgioiigmjlpflg";
         let browsers = ["chrome", "edge", "brave", "opera", "operagx", "firefox"];
         for b_id in browsers {
             let profs = BrowserDetector::find_browser_profiles(b_id);
             for p in profs {
-                let target = p.join("Extensions").join(ext_id);
-                if target.exists() {
-                    let _ = remove_dir_all(&target);
-                    logs.push(format!("Removed extension from {} profile: {:?}", b_id, target));
-                }
                 if b_id == "firefox" {
                     let ff_ext = p.join("extensions").join("snapload@darkskyee.github.io.xpi");
                     if ff_ext.exists() {
-                        let _ = std::fs::remove_file(&ff_ext);
+                        let _ = Self::force_remove_file(&ff_ext);
                         logs.push(format!("Removed Firefox extension XPI: {:?}", ff_ext));
+                    }
+                    let ext_json = p.join("extensions.json");
+                    if ext_json.exists() {
+                        if let Ok(c) = std::fs::read_to_string(&ext_json) {
+                            if let Ok(mut j) = serde_json::from_str::<serde_json::Value>(&c) {
+                                if let Some(addons) = j.pointer_mut("/addons") {
+                                    if let Some(arr) = addons.as_array_mut() {
+                                        let orig_len = arr.len();
+                                        arr.retain(|a| {
+                                            a.get("id").and_then(|v| v.as_str()) != Some("snapload@darkskyee.github.io")
+                                        });
+                                        if arr.len() != orig_len {
+                                            if let Ok(serialized) = serde_json::to_string_pretty(&j) {
+                                                let _ = std::fs::write(&ext_json, serialized);
+                                                logs.push("Cleaned Firefox extensions.json".to_string());
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    Self::clean_extension_from_chromium_profile(&p, ext_id);
+                    logs.push(format!("Cleaned {} profile extension settings: {:?}", b_id, p));
+                }
+            }
+        }
+
+        // Explicitly check Opera & Opera GX profile directories (both with & without Default)
+        if let Some(appdata) = std::env::var_os("APPDATA") {
+            let opera_base = PathBuf::from(&appdata).join("Opera Software");
+            for sub in &["Opera Stable", "Opera GX Stable", "Opera Developer", "Opera Next"] {
+                let op = opera_base.join(sub);
+                if op.exists() {
+                    Self::clean_extension_from_chromium_profile(&op, ext_id);
+                    let def = op.join("Default");
+                    if def.exists() {
+                        Self::clean_extension_from_chromium_profile(&def, ext_id);
                     }
                 }
             }
         }
 
-        // Also check explicit standard paths for browser extension folders
-        let mut explicit_ext_paths = Vec::new();
-        if let Some(appdata) = std::env::var_os("APPDATA") {
-            explicit_ext_paths.push(PathBuf::from(&appdata).join("Opera Software").join("Opera Stable").join("Default").join("Extensions").join(ext_id));
-            explicit_ext_paths.push(PathBuf::from(&appdata).join("Opera Software").join("Opera GX Stable").join("Default").join("Extensions").join(ext_id));
-        }
+        // 4. Force remove all binaries: ffmpeg.exe, yt-dlp.exe, snapload-engine.exe
+        let mut candidate_bin_dirs = Vec::new();
         if let Some(local) = std::env::var_os("LOCALAPPDATA") {
-            explicit_ext_paths.push(PathBuf::from(&local).join("Opera Software").join("Opera Stable").join("Default").join("Extensions").join(ext_id));
-            explicit_ext_paths.push(PathBuf::from(&local).join("Opera Software").join("Opera GX Stable").join("Default").join("Extensions").join(ext_id));
-            explicit_ext_paths.push(PathBuf::from(&local).join("Google").join("Chrome").join("User Data").join("Default").join("Extensions").join(ext_id));
-            explicit_ext_paths.push(PathBuf::from(&local).join("Microsoft").join("Edge").join("User Data").join("Default").join("Extensions").join(ext_id));
-            explicit_ext_paths.push(PathBuf::from(&local).join("BraveSoftware").join("Brave-Browser").join("User Data").join("Default").join("Extensions").join(ext_id));
+            candidate_bin_dirs.push(PathBuf::from(&local).join("SnapLoad").join("bin"));
+            candidate_bin_dirs.push(PathBuf::from(&local).join("SnapLoad"));
         }
-        for path in explicit_ext_paths {
-            if path.exists() {
-                let _ = remove_dir_all(&path);
-                logs.push(format!("Cleaned browser extension directory: {:?}", path));
+        if let Some(appdata) = std::env::var_os("APPDATA") {
+            candidate_bin_dirs.push(PathBuf::from(&appdata).join("SnapLoad").join("bin"));
+            candidate_bin_dirs.push(PathBuf::from(&appdata).join("SnapLoad"));
+        }
+
+        for b_dir in &candidate_bin_dirs {
+            for exe in &["ffmpeg.exe", "yt-dlp.exe", "snapload-engine.exe"] {
+                let f = b_dir.join(exe);
+                if f.exists() {
+                    if Self::force_remove_file(&f) {
+                        logs.push(format!("Removed binary: {:?}", f));
+                    }
+                }
             }
         }
 
-        // 4. Remove binaries including ffmpeg.exe, yt-dlp.exe, snapload-engine.exe
-        let bin_dir = Self::get_bin_dir();
-        let ffmpeg_path = bin_dir.join("ffmpeg.exe");
-        if ffmpeg_path.exists() {
-            let _ = std::fs::remove_file(&ffmpeg_path);
-            logs.push("Removed FFmpeg media converter binary".to_string());
+        // 5. Completely remove SnapLoad application directories
+        let mut app_dirs_to_clean = Vec::new();
+        if let Some(local) = std::env::var_os("LOCALAPPDATA") {
+            app_dirs_to_clean.push(PathBuf::from(&local).join("SnapLoad"));
         }
-        let ytdlp_path = bin_dir.join("yt-dlp.exe");
-        if ytdlp_path.exists() {
-            let _ = std::fs::remove_file(&ytdlp_path);
-            logs.push("Removed yt-dlp binary".to_string());
-        }
-        let engine_path = bin_dir.join("snapload-engine.exe");
-        if engine_path.exists() {
-            let _ = std::fs::remove_file(&engine_path);
-            logs.push("Removed SnapLoad Engine binary".to_string());
+        if let Some(appdata) = std::env::var_os("APPDATA") {
+            app_dirs_to_clean.push(PathBuf::from(&appdata).join("SnapLoad"));
         }
 
-        // 5. Remove application directory (excluding user downloads)
-        let app_dir = Self::get_app_dir();
-        if app_dir.exists() {
-            let _ = remove_dir_all(&app_dir);
-            logs.push("Cleaned up %LOCALAPPDATA%\\SnapLoad".to_string());
+        for d in app_dirs_to_clean {
+            if d.exists() {
+                if Self::force_remove_dir_all(&d) {
+                    logs.push(format!("Cleaned application directory: {:?}", d));
+                } else {
+                    logs.push(format!("Notice: Partial removal of {:?}", d));
+                }
+            }
         }
 
         logs.push("SnapLoad components and browser extensions uninstalled. Downloaded media preserved.".to_string());
@@ -1083,15 +1178,7 @@ impl SetupManager {
             ext_to_copy_to_clip = chrome_unpacked.to_string_lossy().to_string();
             logs.push(format!("Chromium extension folder: {:?}", chrome_unpacked));
 
-            let ext_id = "ikkidkbojpedpeaomipgioiigmjlpflg";
-            let version_tag = "1.0.0_0";
 
-            for p in &profile_dirs {
-                let target_dir = p.join("Extensions").join(ext_id).join(version_tag);
-                let _ = create_dir_all(&target_dir);
-                let _ = copy_dir_recursive(&chrome_unpacked, &target_dir);
-                logs.push(format!("Deployed extension to profile: {:?}", target_dir));
-            }
 
             // Register external extension in Registry
             let _ = RegistryManager::register_chromium_extension(browser_id, &chrome_unpacked);

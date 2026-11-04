@@ -270,17 +270,6 @@ impl BrowserDetector {
     }
 
     pub fn find_edge() -> Option<String> {
-        let mut candidates = Vec::new();
-        if let Some(prog86) = std::env::var_os("ProgramFiles(x86)") {
-            candidates.push(PathBuf::from(&prog86).join("Microsoft\\Edge\\Application\\msedge.exe"));
-        }
-        if let Some(prog) = std::env::var_os("ProgramFiles") {
-            candidates.push(PathBuf::from(&prog).join("Microsoft\\Edge\\Application\\msedge.exe"));
-        }
-        if let Some(local) = std::env::var_os("LOCALAPPDATA") {
-            candidates.push(PathBuf::from(&local).join("Microsoft\\Edge\\Application\\msedge.exe"));
-        }
-
         let is_valid_edge = |path_str: &str| -> bool {
             let p = Path::new(path_str);
             if !p.exists() || !p.is_file() {
@@ -288,39 +277,65 @@ impl BrowserDetector {
             }
             let lossy = path_str.to_lowercase();
             // Disallow EdgeCore, EdgeWebView, or temp stubs
-            if lossy.contains("edgecore") || lossy.contains("edgewebview") {
+            if lossy.contains("edgecore") || lossy.contains("edgewebview") || lossy.contains("temp") {
                 return false;
             }
             if let Ok(meta) = p.metadata() {
-                if meta.len() < 100_000 {
+                if meta.len() < 1_500_000 {
                     return false;
                 }
+            } else {
+                return false;
             }
             true
         };
 
-        if let Some(found) = Self::check_reg_or_file(
+        let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+        let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
+
+        let reg_subkeys = [
             r"Software\Microsoft\Windows\CurrentVersion\App Paths\msedge.exe",
-            &candidates,
-        ) {
-            if is_valid_edge(&found) {
-                return Some(found);
-            }
-        }
-
-        if let Some(found) = Self::check_reg_or_file(
             r"SOFTWARE\Clients\StartMenuInternet\Microsoft Edge\shell\open\command",
-            &candidates,
-        ) {
-            if is_valid_edge(&found) {
-                return Some(found);
+            r"SOFTWARE\WOW6432Node\Clients\StartMenuInternet\Microsoft Edge\shell\open\command",
+        ];
+
+        for key_path in reg_subkeys {
+            if let Ok(k) = hkcu.open_subkey(key_path) {
+                if let Ok(val) = k.get_value::<String, _>("") {
+                    let clean = Self::sanitize_exe_path(&val);
+                    if is_valid_edge(&clean) {
+                        return Some(clean);
+                    }
+                }
+            }
+            if let Ok(k) = hklm.open_subkey(key_path) {
+                if let Ok(val) = k.get_value::<String, _>("") {
+                    let clean = Self::sanitize_exe_path(&val);
+                    if is_valid_edge(&clean) {
+                        return Some(clean);
+                    }
+                }
             }
         }
 
-        for c in &candidates {
-            let s = c.to_string_lossy().to_string();
-            if is_valid_edge(&s) {
-                return Some(s);
+        // Also check EdgeUpdate client version key if App Paths was missing
+        let edge_update_keys = [
+            r"SOFTWARE\Microsoft\EdgeUpdate\Clients\{56EB18F8-B008-4CBD-B6D2-8C97FE7E9062}",
+            r"SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{56EB18F8-B008-4CBD-B6D2-8C97FE7E9062}",
+        ];
+        for k_path in edge_update_keys {
+            if let Ok(k) = hklm.open_subkey(k_path) {
+                if let Ok(pv) = k.get_value::<String, _>("pv") {
+                    if !pv.trim().is_empty() && pv.trim() != "0.0.0.0" {
+                        if let Ok(loc) = k.get_value::<String, _>("location") {
+                            let candidate = PathBuf::from(loc).join("msedge.exe");
+                            let s = candidate.to_string_lossy().to_string();
+                            if is_valid_edge(&s) {
+                                return Some(s);
+                            }
+                        }
+                    }
+                }
             }
         }
 
