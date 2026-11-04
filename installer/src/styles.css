@@ -1202,3 +1202,373 @@ h2 {
 @keyframes spin {
   to { transform: rotate(360deg); }
 }
+
+/* ==========================================================================
+   Opening Launch Splash Animation - Ultra High Quality Professional Intro
+   ========================================================================== */
+.launch-splash {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: 10000;
+  background: radial-gradient(circle at 50% 45%, #151d2f 0%, #0d111b 50%, #07090e 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  user-select: none;
+  cursor: pointer;
+  transition: opacity 0.45s cubic-bezier(0.16, 1, 0.3, 1), transform 0.45s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.launch-splash.fade-out {
+  opacity: 0;
+  transform: scale(1.03);
+  pointer-events: none;
+}
+
+.splash-backdrop-glow {
+  position: absolute;
+  width: 500px;
+  height: 500px;
+  background: radial-gradient(circle, rgba(37, 99, 235, 0.22) 0%, rgba(56, 189, 248, 0.08) 45%, transparent 70%);
+  border-radius: 50%;
+  pointer-events: none;
+  animation: splashPulse 3.5s ease-in-out infinite alternate;
+}
+
+.splash-tech-grid {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-image: 
+    linear-gradient(rgba(255, 255, 255, 0.02) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
+  background-size: 32px 32px;
+  pointer-events: none;
+  opacity: 0.6;
+}
+
+.splash-content {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  animation: splashContentIn 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.splash-logo-container {
+  position: relative;
+  width: 96px;
+  height: 96px;
+  margin-bottom: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.splash-halo-ring {
+  position: absolute;
+  width: 114px;
+  height: 114px;
+  border-radius: 30px;
+  border: 1.5px solid transparent;
+  background: linear-gradient(135deg, rgba(56, 189, 248, 0.45), rgba(37, 99, 235, 0.1), rgba(56, 189, 248, 0.3)) border-box;
+  -webkit-mask: linear-gradient(#fff 0 0) padding-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  animation: haloRotate 6s linear infinite;
+}
+
+.splash-halo-pulse {
+  position: absolute;
+  width: 96px;
+  height: 96px;
+  border-radius: 26px;
+  box-shadow: 0 0 35px rgba(37, 99, 235, 0.4);
+  animation: pulseGlow 2s ease-in-out infinite alternate;
+}
+
+.splash-logo-box {
+  width: 90px;
+  height: 90px;
+  background: linear-gradient(145deg, #1e293b, #0f172a);
+  border: 1.5px solid rgba(255, 255, 255, 0.14);
+  border-radius: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+}
+
+.splash-logo-svg {
+  width: 52px;
+  height: 52px;
+}
+
+.splash-arrow-stem,
+.splash-arrow-head {
+  animation: arrowGlide 1.6s ease-in-out infinite;
+}
+
+.splash-energy-dot {
+  animation: dotEnergy 1.6s ease-in-out infinite;
+}
+
+.splash-brand-text {
+  margin-bottom: 24px;
+}
+
+.splash-title {
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: -0.6px;
+  line-height: 1.1;
+  margin-bottom: 6px;
+}
+
+.brand-snap {
+  color: #FFFFFF;
+}
+
+.brand-load {
+  background: linear-gradient(135deg, #38BDF8 0%, #2563EB 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.splash-subtitle {
+  font-size: 13px;
+  color: #94A3B8;
+  font-weight: 400;
+  margin-bottom: 12px;
+  letter-spacing: 0.1px;
+}
+
+.splash-badge-row {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+}
+
+.splash-chip {
+  font-size: 11px;
+  font-weight: 500;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #CBD5E1;
+}
+
+.splash-loader-area {
+  width: 240px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+.splash-progress-track {
+  width: 100%;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+  overflow: hidden;
+  position: relative;
+}
+
+.splash-progress-bar {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, #2563EB, #38BDF8, #60A5FA);
+  border-radius: 999px;
+  box-shadow: 0 0 10px rgba(56, 189, 248, 0.6);
+  transition: width 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.splash-status-text {
+  font-size: 11.5px;
+  color: #64748B;
+  font-weight: 400;
+  min-height: 16px;
+  transition: opacity 0.2s ease;
+}
+
+@keyframes splashContentIn {
+  0% {
+    opacity: 0;
+    transform: translateY(14px) scale(0.96);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes splashPulse {
+  0% {
+    transform: scale(0.92);
+    opacity: 0.7;
+  }
+  100% {
+    transform: scale(1.08);
+    opacity: 1;
+  }
+}
+
+@keyframes haloRotate {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+@keyframes pulseGlow {
+  0% { box-shadow: 0 0 20px rgba(37, 99, 235, 0.2); }
+  100% { box-shadow: 0 0 40px rgba(56, 189, 248, 0.45); }
+}
+
+@keyframes arrowGlide {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(3px); }
+}
+
+@keyframes dotEnergy {
+  0%, 100% { opacity: 0.4; transform: scale(0.8); }
+  50% { opacity: 1; transform: scale(1.2); }
+}
+
+/* ==========================================================================
+   Setup Self-Updater Styles
+   ========================================================================== */
+.setup-updater-card {
+  background: linear-gradient(135deg, rgba(37, 99, 235, 0.08) 0%, rgba(39, 39, 42, 0.8) 100%);
+  border: 1px solid rgba(37, 99, 235, 0.28);
+  border-radius: var(--radius-lg);
+  padding: 16px 20px;
+  margin-bottom: 18px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+  transition: border-color 0.2s;
+}
+
+.setup-updater-card:hover {
+  border-color: rgba(37, 99, 235, 0.45);
+}
+
+.setup-updater-main {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+}
+
+.setup-updater-hero {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.setup-updater-icon {
+  width: 44px;
+  height: 44px;
+  background: linear-gradient(145deg, #1E3A8A, #1D4ED8);
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #FFFFFF;
+  flex-shrink: 0;
+  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.35);
+}
+
+.setup-updater-title-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 3px;
+}
+
+.setup-updater-title-row h3 {
+  font-size: 14.5px;
+  font-weight: 600;
+  color: var(--text-title);
+}
+
+.setup-updater-desc {
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
+.setup-update-action-box {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.setup-release-info-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+}
+
+.setup-release-label {
+  color: var(--text-secondary);
+}
+
+.setup-release-version {
+  color: #38BDF8;
+  font-weight: 600;
+}
+
+.setup-release-date {
+  color: var(--text-muted);
+  font-size: 11.5px;
+}
+
+.setup-release-notes {
+  background: var(--bg-input);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 10px 14px;
+  font-size: 12px;
+  color: var(--text-main);
+  max-height: 90px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  line-height: 1.45;
+}
+
+.setup-update-buttons-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.setup-update-status-msg {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.brand-badge.update-pulse {
+  background: rgba(245, 158, 11, 0.2);
+  color: #FBBF24;
+  border-color: rgba(245, 158, 11, 0.4);
+  cursor: pointer;
+  animation: pulseAmber 2s infinite;
+}
+
+@keyframes pulseAmber {
+  0% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.4); }
+  70% { box-shadow: 0 0 0 6px rgba(245, 158, 11, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0); }
+}
