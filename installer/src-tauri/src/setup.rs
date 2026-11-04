@@ -532,6 +532,19 @@ impl SetupManager {
                 registered.push(b);
             }
         }
+
+        if registered.is_empty() && engine_path.exists() {
+            // Auto-repair missing host manifests and registry keys if engine is deployed
+            if let Ok((chrome_man, firefox_man)) = RegistryManager::write_manifests(&engine_path) {
+                for b in browsers {
+                    let man = if b == "firefox" { &firefox_man } else { &chrome_man };
+                    if RegistryManager::register_browser(b, man).is_ok() {
+                        registered.push(b);
+                    }
+                }
+            }
+        }
+
         if !registered.is_empty() {
             items.push(DiagnosticItem {
                 name: "Windows Registry Host Keys".to_string(),

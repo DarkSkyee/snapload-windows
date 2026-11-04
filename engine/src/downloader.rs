@@ -231,6 +231,30 @@ impl DownloadManager {
             None
         };
 
+        if let Err(e) = fs::create_dir_all(&output_dir) {
+            let _ = response_tx
+                .send(EngineResponse::err(
+                    &download_id,
+                    "IO_ERROR",
+                    &format!("Failed to create download directory: {}", e),
+                ))
+                .await;
+            return;
+        }
+
+        // Immediately notify client that download request has been accepted
+        let _ = response_tx
+            .send(EngineResponse::ok(
+                &download_id,
+                ResponseType::DownloadStarted,
+                serde_json::json!({
+                    "download_id": &download_id,
+                    "url": &valid_url,
+                    "output_dir": output_dir.to_string_lossy(),
+                }),
+            ))
+            .await;
+
         let ytdlp_path = match DependencyManager::find_ytdlp(&config) {
             Some(p) => p,
             None => {
@@ -238,6 +262,21 @@ impl DownloadManager {
                     "yt-dlp not found locally for download {}. Attempting automated download...",
                     download_id
                 ));
+                let _ = response_tx
+                    .send(EngineResponse::ok(
+                        &download_id,
+                        ResponseType::DownloadProgress,
+                        serde_json::json!({
+                            "download_id": &download_id,
+                            "percent": 0.0,
+                            "speed": "",
+                            "eta": "",
+                            "total_bytes": 0,
+                            "downloaded_bytes": 0,
+                            "status": "Setting up yt-dlp core extractor...",
+                        }),
+                    ))
+                    .await;
                 match DependencyManager::auto_download_ytdlp().await {
                     Some(p) => p,
                     None => {
@@ -253,30 +292,6 @@ impl DownloadManager {
         };
 
         let ffmpeg_path = DependencyManager::find_ffmpeg(&config);
-
-        if let Err(e) = fs::create_dir_all(&output_dir) {
-            let _ = response_tx
-                .send(EngineResponse::err(
-                    &download_id,
-                    "IO_ERROR",
-                    &format!("Failed to create download directory: {}", e),
-                ))
-                .await;
-            return;
-        }
-
-        // Notify client download has started
-        let _ = response_tx
-            .send(EngineResponse::ok(
-                &download_id,
-                ResponseType::DownloadStarted,
-                serde_json::json!({
-                    "download_id": &download_id,
-                    "url": &valid_url,
-                    "output_dir": output_dir.to_string_lossy(),
-                }),
-            ))
-            .await;
 
         let manager = self.clone();
         tokio::spawn(async move {
@@ -463,7 +478,24 @@ impl DownloadManager {
                     download_id
                 ));
                 // Locate the finished file
-                if let Some(file_info) = Self::find_output_file(&output_dir, &unique_prefix) {
+                if let Some(mut file_info) = Self::find_output_file(&output_dir, &unique_prefix) {
+                    let prefix_with_underscore = format!("{}_", unique_prefix);
+                    let clean_name = if file_info.name.starts_with(&prefix_with_underscore) {
+                        file_info.name[prefix_with_underscore.len()..].to_string()
+                    } else if file_info.name.starts_with(&unique_prefix) {
+                        file_info.name[unique_prefix.len()..].to_string()
+                    } else {
+                        file_info.name.clone()
+                    };
+
+                    let clean_path = output_dir.join(&clean_name);
+                    if clean_path != file_info.path && !clean_name.is_empty() && !clean_path.exists() {
+                        if fs::rename(&file_info.path, &clean_path).is_ok() {
+                            file_info.path = clean_path;
+                            file_info.name = clean_name;
+                        }
+                    }
+
                     let _ = response_tx
                         .send(EngineResponse::ok(
                             &download_id,
@@ -649,7 +681,24 @@ impl DownloadManager {
 
         match wait_result {
             Ok(Ok(status)) if status.success() => {
-                if let Some(file_info) = Self::find_output_file(&output_dir, &unique_prefix) {
+                if let Some(mut file_info) = Self::find_output_file(&output_dir, &unique_prefix) {
+                    let prefix_with_underscore = format!("{}_", unique_prefix);
+                    let clean_name = if file_info.name.starts_with(&prefix_with_underscore) {
+                        file_info.name[prefix_with_underscore.len()..].to_string()
+                    } else if file_info.name.starts_with(&unique_prefix) {
+                        file_info.name[unique_prefix.len()..].to_string()
+                    } else {
+                        file_info.name.clone()
+                    };
+
+                    let clean_path = output_dir.join(&clean_name);
+                    if clean_path != file_info.path && !clean_name.is_empty() && !clean_path.exists() {
+                        if fs::rename(&file_info.path, &clean_path).is_ok() {
+                            file_info.path = clean_path;
+                            file_info.name = clean_name;
+                        }
+                    }
+
                     let _ = response_tx
                         .send(EngineResponse::ok(
                             &download_id,
