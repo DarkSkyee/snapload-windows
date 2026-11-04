@@ -53,6 +53,7 @@ $manifest = @{
 
 $json = $manifest | ConvertTo-Json -Depth 5
 $outPath = "$root\release_manifest.json"
-$json | Set-Content -Path $outPath -Encoding UTF8
+$utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+[System.IO.File]::WriteAllText($outPath, $json, $utf8NoBom)
 
 Write-Host "Generated release manifest: $outPath" -ForegroundColor Green
