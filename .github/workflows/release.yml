@@ -48,13 +48,17 @@ jobs:
           cd src-tauri
           cargo build --release
 
-      - name: Publish GitHub Release (Setup Only)
+      - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || inputs.tag || 'v1.0.0' }}
           name: "SnapLoad Windows 1.0"
           files: |
             installer/src-tauri/target/release/snapload-setup.exe
+            engine/target/release/snapload-engine.exe
+            extension/dist/snapload-extension-chromium.zip
+            extension/dist/snapload-extension-firefox.zip
+            release_manifest.json
           draft: false
           prerelease: false
           generate_release_notes: true

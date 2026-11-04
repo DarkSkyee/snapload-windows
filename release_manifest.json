@@ -5,22 +5,22 @@
     "artifacts":  {
                       "extension_firefox":  {
                                                 "url":  "https://github.com/DarkSkyee/snapload-windows/releases/download/v1.0.0/snapload-extension-firefox.zip",
-                                                "sha256":  "2624662e80dd2e3d3a15ac0dee22d207a92fcb2e2a2ddf536a35920f2ddfc51c",
+                                                "sha256":  "b0b9a77d28448bfe86ead6fba71ba8edef9aef36c7fb44a6abd419e996251bdd",
                                                 "file":  "snapload-extension-firefox.zip"
                                             },
                       "engine":  {
                                      "url":  "https://github.com/DarkSkyee/snapload-windows/releases/download/v1.0.0/snapload-engine.exe",
-                                     "sha256":  "adae3d8ce94f2c6308ce4c994571552fe5a3bd65a29474aeeb063be701910d4d",
+                                     "sha256":  "67c97dcaf5a65c5c0511ea6511d6f2277837cd47d23f5dce70aed4609661ee68",
                                      "file":  "snapload-engine.exe"
                                  },
                       "setup":  {
                                     "url":  "https://github.com/DarkSkyee/snapload-windows/releases/download/v1.0.0/snapload-setup.exe",
-                                    "sha256":  "0f8597ed5af00cf6274dccc3f5f051e6d5762f816ae3206697f9e70c9f34f5b7",
+                                    "sha256":  "f0786e5a6c0584c35515a8cc8e79d954d421c751de0cc582b50b90f00ce09e54",
                                     "file":  "snapload-setup.exe"
                                 },
                       "extension_chromium":  {
                                                  "url":  "https://github.com/DarkSkyee/snapload-windows/releases/download/v1.0.0/snapload-extension-chromium.zip",
-                                                 "sha256":  "53546f5e24d24b969696b3c1b194cbbd6d134c3497b02d2bc2a99bf5f87201c9",
+                                                 "sha256":  "ea725141a11bd92e7f77b6b8d1462129b26e3eba660dd9dc332ad4a641059acb",
                                                  "file":  "snapload-extension-chromium.zip"
                                              }
                   },
@@ -32,5 +32,5 @@
                                         "source":  "https://github.com/GyanD/codexffmpeg/releases/latest"
                                     }
                      },
-    "release_date":  "2026-11-02"
+    "release_date":  "2026-11-04"
 }

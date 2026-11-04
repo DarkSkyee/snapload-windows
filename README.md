@@ -81,7 +81,7 @@ Unlike web converter portals with intrusive ads or heavy Electron background dae
       yt-dlp Core Extractor       FFmpeg Media Converter
                │
                ▼
-      Downloads\\SnapLoad\\ (User Scoped Storage)
+      Downloads\\ (User Scoped Storage)
 ```
 
 ---

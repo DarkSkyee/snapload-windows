@@ -166,7 +166,7 @@ Cancels an active download and kills child process tree.
   "success": true,
   "data": {
     "download_id": "req-4",
-    "file_path": "C:\\Users\\Name\\Downloads\\SnapLoad\\snapload_req-4.mp4",
+    "file_path": "C:\\Users\\Name\\Downloads\\snapload_req-4.mp4",
     "file_name": "snapload_req-4.mp4",
     "file_size_bytes": 104857600,
     "extension": "mp4",

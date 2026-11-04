@@ -37,7 +37,7 @@
        └────────┬────────┘             └─────────────────┘
                 │
                 ▼
-       Downloads/SnapLoad/ (Local User Storage)
+       Downloads/ (Local User Storage)
 ```
 
 ---
