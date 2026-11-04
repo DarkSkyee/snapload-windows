@@ -162,35 +162,80 @@ impl SetupManager {
             _ => "Browser",
         };
 
-        let mut targets = vec![user_desktop.join(format!("SnapLoad ({}).lnk", browser_name))];
-        if let Some(ref sm) = start_menu_programs {
-            targets.push(sm.join(format!("SnapLoad ({}).lnk", browser_name)));
-        }
+        let target_lnk = user_desktop.join(format!("SnapLoad ({}).lnk", browser_name));
+        let sm_lnk = start_menu_programs
+            .as_ref()
+            .map(|sm| sm.join(format!("SnapLoad ({}).lnk", browser_name)))
+            .unwrap_or_else(|| PathBuf::from(""));
 
-        for shortcut_path in &targets {
-            let ps_script = format!(
-                "$ws = New-Object -ComObject WScript.Shell; \
-                 $s = $ws.CreateShortcut('{}'); \
-                 $s.TargetPath = '{}'; \
-                 $s.Arguments = '--load-extension=\"{}\" --disable-features=DisableLoadExtensionCommandLineSwitch'; \
-                 $s.IconLocation = '{}'; \
-                 $s.Description = 'Launch {} with SnapLoad extension'; \
-                 $s.Save()",
-                shortcut_path.to_string_lossy().replace('\'', "''"),
-                exe_path.replace('\'', "''"),
-                ext_str.replace('\'', "''"),
-                exe_path.replace('\'', "''"),
-                browser_name
-            );
+        let exe_file_name = Path::new(exe_path)
+            .file_name()
+            .map(|f| f.to_string_lossy().to_string())
+            .unwrap_or_else(|| "browser.exe".to_string());
 
-            let mut cmd = std::process::Command::new("powershell.exe");
-            #[cfg(windows)]
-            cmd.creation_flags(CREATE_NO_WINDOW);
-            cmd.args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", &ps_script]);
-            let _ = cmd.output();
-        }
+        let ps_script = format!(
+            "$ws = New-Object -ComObject WScript.Shell; \
+             $flag = '--load-extension=\"{}\" --disable-features=DisableLoadExtensionCommandLineSwitch'; \
+             $dedicated = @('{}', '{}'); \
+             foreach ($p in $dedicated) {{ \
+                 if ($p -and $p.Length -gt 0) {{ \
+                     try {{ \
+                         $s = $ws.CreateShortcut($p); \
+                         $s.TargetPath = '{}'; \
+                         $s.Arguments = $flag; \
+                         $s.IconLocation = '{}'; \
+                         $s.Description = 'Launch {} with SnapLoad extension'; \
+                         $s.Save(); \
+                     }} catch {{}} \
+                 }} \
+             }}; \
+             $cleanTarget = '{}'.ToLower(); \
+             $exeName = '{}'.ToLower(); \
+             $dirs = @( \
+                 \"$HOME\\Desktop\", \
+                 \"$env:PUBLIC\\Desktop\", \
+                 \"$env:APPDATA\\Microsoft\\Windows\\Start Menu\\Programs\", \
+                 \"$env:ProgramData\\Microsoft\\Windows\\Start Menu\\Programs\", \
+                 \"$env:APPDATA\\Microsoft\\Internet Explorer\\Quick Launch\\User Pinned\\TaskBar\" \
+             ); \
+             foreach ($d in $dirs) {{ \
+                 if (Test-Path $d) {{ \
+                     Get-ChildItem -Path $d -Recurse -Filter \"*.lnk\" -ErrorAction SilentlyContinue | ForEach-Object {{ \
+                         try {{ \
+                             $sc = $ws.CreateShortcut($_.FullName); \
+                             $scTarget = ('' + $sc.TargetPath).ToLower(); \
+                             if ($scTarget.Length -gt 0 -and ($scTarget -eq $cleanTarget -or $scTarget.EndsWith($exeName) -or $scTarget -like ('*\\' + $exeName))) {{ \
+                                 $curArgs = ('' + $sc.Arguments).Trim(); \
+                                 if ($curArgs -notlike \"*--load-extension=*\") {{ \
+                                     if ($curArgs.Length -gt 0) {{ \
+                                         $sc.Arguments = $curArgs + ' ' + $flag; \
+                                     }} else {{ \
+                                         $sc.Arguments = $flag; \
+                                     }} \
+                                     $sc.Save(); \
+                                 }} \
+                             }} \
+                         }} catch {{}} \
+                     }} \
+                 }} \
+             }}",
+            ext_str.replace('\'', "''"),
+            target_lnk.to_string_lossy().replace('\'', "''"),
+            sm_lnk.to_string_lossy().replace('\'', "''"),
+            exe_path.replace('\'', "''"),
+            exe_path.replace('\'', "''"),
+            browser_name,
+            exe_path.replace('\'', "''"),
+            exe_file_name.replace('\'', "''")
+        );
 
-        Ok(format!("Created desktop & Start Menu shortcuts for {}", browser_name))
+        let mut cmd = std::process::Command::new("powershell.exe");
+        #[cfg(windows)]
+        cmd.creation_flags(CREATE_NO_WINDOW);
+        cmd.args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", &ps_script]);
+        let _ = cmd.output();
+
+        Ok(format!("Configured desktop, Start Menu, and Taskbar shortcuts for {}", browser_name))
     }
 
     pub fn deploy_to_browser_profiles(chrome_unpacked_dir: &Path) -> Vec<String> {
@@ -791,41 +836,67 @@ impl SetupManager {
                     }
 
                     if let Some(extensions) = json.get_mut("extensions").and_then(|e| e.as_object_mut()) {
+                        let is_opera = profile_path.to_string_lossy().to_lowercase().contains("opera") || extensions.contains_key("opsettings");
+
+                        let ext_entry = serde_json::json!({
+                            "active_permissions": {
+                                "api": ["contextMenus", "nativeMessaging", "notifications", "storage", "tabs"],
+                                "explicit_host": ["*://*.youtu.be/*", "*://*.youtube.com/*"],
+                                "manifest_permissions": [],
+                                "scriptable_host": ["*://*.youtube.com/*", "https://*.youtube.com/*"]
+                            },
+                            "commands": {},
+                            "content_settings": [],
+                            "creation_flags": 38,
+                            "events": [],
+                            "from_bookmark": false,
+                            "from_webstore": false,
+                            "granted_permissions": {
+                                "api": ["contextMenus", "nativeMessaging", "notifications", "storage", "tabs"],
+                                "explicit_host": ["*://*.youtu.be/*", "*://*.youtube.com/*"],
+                                "manifest_permissions": [],
+                                "scriptable_host": ["*://*.youtube.com/*", "https://*.youtube.com/*"]
+                            },
+                            "incognito_content_settings": [],
+                            "incognito_preferences": {},
+                            "initial_keybindings": [],
+                            "location": 4,
+                            "new_allow_file_access": true,
+                            "path": path_str,
+                            "preferences": {},
+                            "regular_only_preferences": {},
+                            "service_worker_registration_info": {},
+                            "state": 1,
+                            "was_installed_by_default": false,
+                            "was_installed_by_oem": false
+                        });
+
+                        // Standard settings (Chrome, Edge, Brave)
                         if !extensions.contains_key("settings") {
                             extensions.insert("settings".to_string(), serde_json::json!({}));
                         }
                         if let Some(settings) = extensions.get_mut("settings").and_then(|s| s.as_object_mut()) {
-                            let ext_entry = serde_json::json!({
-                                "active_permissions": {
-                                    "api": ["nativeMessaging"],
-                                    "manifest_permissions": [],
-                                    "scriptable_host": ["*://*.youtube.com/*"]
-                                },
-                                "commands": {},
-                                "content_settings": [],
-                                "creation_flags": 38,
-                                "events": [],
-                                "from_bookmark": false,
-                                "from_webstore": false,
-                                "granted_permissions": {
-                                    "api": ["nativeMessaging"],
-                                    "manifest_permissions": [],
-                                    "scriptable_host": ["*://*.youtube.com/*"]
-                                },
-                                "incognito_content_settings": [],
-                                "incognito_preferences": {},
-                                "initial_keybindings": [],
-                                "location": 5,
-                                "new_allow_file_access": true,
-                                "path": path_str,
-                                "preferences": {},
-                                "regular_only_preferences": {},
-                                "service_worker_registration_info": {},
-                                "state": 1,
-                                "was_installed_by_default": false,
-                                "was_installed_by_oem": false
-                            });
-                            settings.insert(ext_id.to_string(), ext_entry);
+                            settings.insert(ext_id.to_string(), ext_entry.clone());
+                            modified = true;
+                        }
+
+                        // Opera and Opera GX use opsettings
+                        if is_opera {
+                            if !extensions.contains_key("opsettings") {
+                                extensions.insert("opsettings".to_string(), serde_json::json!({}));
+                            }
+                            if let Some(opsettings) = extensions.get_mut("opsettings").and_then(|s| s.as_object_mut()) {
+                                opsettings.insert(ext_id.to_string(), ext_entry);
+                                modified = true;
+                            }
+                        }
+
+                        // Ensure developer mode is active in ui
+                        if !extensions.contains_key("ui") {
+                            extensions.insert("ui".to_string(), serde_json::json!({}));
+                        }
+                        if let Some(ui) = extensions.get_mut("ui").and_then(|u| u.as_object_mut()) {
+                            ui.insert("developer_mode".to_string(), serde_json::json!(true));
                             modified = true;
                         }
 
@@ -858,66 +929,51 @@ impl SetupManager {
     }
 
     pub fn clean_extension_from_chromium_profile(profile_path: &Path, ext_id: &str) {
-        // 1. Clean from Preferences JSON
-        let prefs_file = profile_path.join("Preferences");
-        if prefs_file.exists() {
-            if let Ok(content) = std::fs::read_to_string(&prefs_file) {
-                if let Ok(mut json) = serde_json::from_str::<serde_json::Value>(&content) {
-                    let mut modified = false;
+        // Clean from Preferences and Secure Preferences JSON
+        for fname in &["Preferences", "Secure Preferences"] {
+            let prefs_file = profile_path.join(fname);
+            if prefs_file.exists() {
+                if let Ok(content) = std::fs::read_to_string(&prefs_file) {
+                    if let Ok(mut json) = serde_json::from_str::<serde_json::Value>(&content) {
+                        let mut modified = false;
 
-                    if let Some(settings) = json.pointer_mut("/extensions/settings") {
-                        if let Some(map) = settings.as_object_mut() {
-                            if map.remove(ext_id).is_some() {
-                                modified = true;
+                        if let Some(settings) = json.pointer_mut("/extensions/settings") {
+                            if let Some(map) = settings.as_object_mut() {
+                                if map.remove(ext_id).is_some() {
+                                    modified = true;
+                                }
                             }
                         }
-                    }
-
-                    if let Some(pinned) = json.pointer_mut("/extensions/pinned_extensions") {
-                        if let Some(arr) = pinned.as_array_mut() {
-                            let orig_len = arr.len();
-                            arr.retain(|v| v.as_str().map(|s| s != ext_id).unwrap_or(true));
-                            if arr.len() != orig_len {
-                                modified = true;
+                        if let Some(opsettings) = json.pointer_mut("/extensions/opsettings") {
+                            if let Some(map) = opsettings.as_object_mut() {
+                                if map.remove(ext_id).is_some() {
+                                    modified = true;
+                                }
                             }
                         }
-                    }
-
-                    if let Some(toolbar) = json.pointer_mut("/extensions/toolbar") {
-                        if let Some(arr) = toolbar.as_array_mut() {
-                            let orig_len = arr.len();
-                            arr.retain(|v| v.as_str().map(|s| s != ext_id).unwrap_or(true));
-                            if arr.len() != orig_len {
-                                modified = true;
+                        if let Some(pinned) = json.pointer_mut("/extensions/pinned_extensions") {
+                            if let Some(arr) = pinned.as_array_mut() {
+                                let orig_len = arr.len();
+                                arr.retain(|v| v.as_str().map(|s| s != ext_id).unwrap_or(true));
+                                if arr.len() != orig_len {
+                                    modified = true;
+                                }
                             }
                         }
-                    }
-
-                    if modified {
-                        if let Ok(serialized) = serde_json::to_string_pretty(&json) {
-                            let _ = std::fs::write(&prefs_file, serialized);
-                        }
-                    }
-                }
-            }
-        }
-
-        // 2. Also clean Secure Preferences if present
-        let sec_prefs_file = profile_path.join("Secure Preferences");
-        if sec_prefs_file.exists() {
-            if let Ok(content) = std::fs::read_to_string(&sec_prefs_file) {
-                if let Ok(mut json) = serde_json::from_str::<serde_json::Value>(&content) {
-                    let mut modified = false;
-                    if let Some(settings) = json.pointer_mut("/extensions/settings") {
-                        if let Some(map) = settings.as_object_mut() {
-                            if map.remove(ext_id).is_some() {
-                                modified = true;
+                        if let Some(toolbar) = json.pointer_mut("/extensions/toolbar") {
+                            if let Some(arr) = toolbar.as_array_mut() {
+                                let orig_len = arr.len();
+                                arr.retain(|v| v.as_str().map(|s| s != ext_id).unwrap_or(true));
+                                if arr.len() != orig_len {
+                                    modified = true;
+                                }
                             }
                         }
-                    }
-                    if modified {
-                        if let Ok(serialized) = serde_json::to_string_pretty(&json) {
-                            let _ = std::fs::write(&sec_prefs_file, serialized);
+
+                        if modified {
+                            if let Ok(serialized) = serde_json::to_string_pretty(&json) {
+                                let _ = std::fs::write(&prefs_file, serialized);
+                            }
                         }
                     }
                 }
