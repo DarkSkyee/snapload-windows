@@ -479,6 +479,48 @@ async function updateStep3ActiveBrowserCard() {
   if (statusBox) {
     statusBox.classList.add("hidden");
   }
+
+  // Guide card dynamic updates
+  const guideBrowserTag = document.getElementById("guide-browser-tag");
+  const guideBrowserDesc = document.getElementById("guide-browser-desc");
+  const guideExtUrlCode = document.getElementById("guide-ext-url-code");
+  const step1Title = document.getElementById("step1-title");
+  const step1Desc = document.getElementById("step1-desc");
+  const step2Title = document.getElementById("step2-title");
+  const step2Desc = document.getElementById("step2-desc");
+  const step3Title = document.getElementById("step3-title");
+  const step3Desc = document.getElementById("step3-desc");
+
+  const extUrl = b.id === "firefox"
+    ? "about:addons"
+    : (b.id === "opera" || b.id === "operagx")
+    ? "opera://extensions"
+    : b.id === "edge"
+    ? "edge://extensions"
+    : b.id === "brave"
+    ? "brave://extensions"
+    : "chrome://extensions";
+
+  if (guideBrowserTag) guideBrowserTag.textContent = b.name;
+  if (guideExtUrlCode) guideExtUrlCode.textContent = extUrl;
+
+  if (b.id === "firefox") {
+    if (guideBrowserDesc) guideBrowserDesc.textContent = "Firefox prompts to add the SnapLoad extension automatically:";
+    if (step1Title) step1Title.textContent = "Click Auto-Install";
+    if (step1Desc) step1Desc.textContent = "Firefox opens automatically with the extension installation prompt.";
+    if (step2Title) step2Title.textContent = "Click 'Add'";
+    if (step2Desc) step2Desc.textContent = "Click 'Add' in the Firefox pop-up to authorize SnapLoad.";
+    if (step3Title) step3Title.textContent = "Ready on YouTube";
+    if (step3Desc) step3Desc.textContent = "SnapLoad download buttons appear immediately on video pages.";
+  } else {
+    if (guideBrowserDesc) guideBrowserDesc.textContent = `If ${b.name} requires Developer Mode to load unpacked extensions, follow these 3 quick steps:`;
+    if (step1Title) step1Title.textContent = "Open Extensions Tab";
+    if (step1Desc) step1Desc.innerHTML = `Open the extensions page in your browser (<code>${extUrl}</code>).`;
+    if (step2Title) step2Title.textContent = "Turn on Developer Mode";
+    if (step2Desc) step2Desc.innerHTML = `Switch the <em>Developer mode</em> toggle in the top-right corner to <strong>ON</strong>.`;
+    if (step3Title) step3Title.textContent = "Load Unpacked & Paste";
+    if (step3Desc) step3Desc.innerHTML = `Click <em>Load unpacked</em> (PL: <em>Załaduj rozpakowane</em>), press <kbd>Ctrl+V</kbd> and select folder.`;
+  }
 }
 
 // React to restart checkbox toggle
@@ -597,6 +639,28 @@ document.getElementById("btn-open-browser-ext-page")?.addEventListener("click", 
   } catch (e: any) {
     showToast(`Error: ${e}`);
   }
+});
+
+// Quick action buttons in Step 3 Guide Card
+document.getElementById("btn-quick-open-ext-page")?.addEventListener("click", async () => {
+  try {
+    const res = await invoke<string>("open_browser_extensions_page", { browserId: step3ActiveBrowserId });
+    showToast(res || "Opened browser extensions page");
+  } catch (e: any) {
+    showToast(`Error: ${e}`);
+  }
+});
+
+document.getElementById("btn-quick-copy-path")?.addEventListener("click", async () => {
+  const paths = await fetchPaths();
+  const folder = step3ActiveBrowserId === "firefox"
+    ? paths.firefox_xpi
+    : paths.chromium_dir;
+  await invoke("copy_to_clipboard", { text: folder }).catch(() => {});
+  if (navigator.clipboard) {
+    await navigator.clipboard.writeText(folder).catch(() => {});
+  }
+  showToast("Copied extension path to clipboard");
 });
 
 document.getElementById("btn-step3-verify")?.addEventListener("click", async () => {
