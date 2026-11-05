@@ -62,6 +62,22 @@ function getLeftControls(): Element | null {
   return null;
 }
 
+/**
+ * Locates YouTube active player container (movie_player or html5-video-player).
+ */
+function getPlayerContainer(): HTMLElement | null {
+  try {
+    const moviePlayer = document.getElementById("movie_player");
+    if (moviePlayer) return moviePlayer;
+
+    const player =
+      document.querySelector<HTMLElement>(".html5-video-player:not(#inline-preview-player)") ||
+      document.querySelector<HTMLElement>(".html5-video-player");
+    if (player) return player;
+  } catch (_) {}
+  return null;
+}
+
 // ==========================================
 // 1. User Preferences & Storage Sync
 // ==========================================
@@ -116,23 +132,67 @@ let isGlobalDismissBound = false;
 function ensureGlobalDismiss() {
   if (isGlobalDismissBound) return;
   isGlobalDismissBound = true;
+
+  // Use capture phase to ensure dismissal even if YouTube elements intercept or stop propagation
   document.addEventListener("click", (e) => {
     const target = e.target as HTMLElement;
     const container = document.getElementById(PLAYER_CONTAINER_ID);
-    if (container && !container.contains(target)) {
-      const menu = container.querySelector(`#${DROPDOWN_MENU_ID}`);
-      const optBtn = container.querySelector(`#${OPTIONS_BUTTON_ID}`);
-      if (menu) menu.classList.add("hidden");
-      if (optBtn) optBtn.setAttribute("aria-expanded", "false");
+    const menu = document.getElementById(DROPDOWN_MENU_ID);
+    const optBtn = document.getElementById(OPTIONS_BUTTON_ID);
+
+    if (!menu || menu.classList.contains("hidden")) return;
+
+    if (container?.contains(target) || menu.contains(target)) {
+      return;
     }
+
+    menu.classList.add("hidden");
+    if (optBtn) optBtn.setAttribute("aria-expanded", "false");
+  }, true);
+
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      const menu = document.getElementById(DROPDOWN_MENU_ID);
+      const optBtn = document.getElementById(OPTIONS_BUTTON_ID);
+      if (menu && !menu.classList.contains("hidden")) {
+        menu.classList.add("hidden");
+        if (optBtn) optBtn.setAttribute("aria-expanded", "false");
+      }
+    }
+  });
+
+  const updateMenuPosition = () => {
+    const menu = document.getElementById(DROPDOWN_MENU_ID);
+    const optBtn = document.getElementById(OPTIONS_BUTTON_ID);
+    if (!menu || menu.classList.contains("hidden") || !optBtn) return;
+    const player = getPlayerContainer() || document.body;
+    const btnRect = optBtn.getBoundingClientRect();
+    const playerRect = player.getBoundingClientRect();
+
+    if (player === document.body) {
+      menu.style.position = "fixed";
+      menu.style.bottom = `${Math.max(10, window.innerHeight - btnRect.top + 8)}px`;
+      menu.style.left = `${Math.max(10, Math.min(window.innerWidth - 245, btnRect.left))}px`;
+    } else {
+      menu.style.position = "absolute";
+      const bottom = Math.max(10, (playerRect.bottom - btnRect.top) + 8);
+      const left = Math.max(8, Math.min(playerRect.width - 245, btnRect.left - playerRect.left));
+      menu.style.bottom = `${bottom}px`;
+      menu.style.left = `${left}px`;
+    }
+  };
+
+  window.addEventListener("resize", updateMenuPosition);
+  document.addEventListener("fullscreenchange", () => {
+    setTimeout(updateMenuPosition, 60);
   });
 }
 
 function updatePlayerLabels() {
   const container = document.getElementById(PLAYER_CONTAINER_ID);
-  if (!container) return;
+  const menu = document.getElementById(DROPDOWN_MENU_ID);
 
-  const btn = container.querySelector(`#${PLAYER_BUTTON_ID}`) as HTMLButtonElement | null;
+  const btn = (container ? container.querySelector(`#${PLAYER_BUTTON_ID}`) : document.getElementById(PLAYER_BUTTON_ID)) as HTMLButtonElement | null;
   const activeFmt = currentPrefs.mediaType === "audio" 
     ? currentPrefs.audioFormat.toUpperCase() 
     : currentPrefs.videoFormat.toUpperCase();
@@ -140,27 +200,29 @@ function updatePlayerLabels() {
     btn.setAttribute("title", `Download with SnapLoad (${activeFmt})`);
   }
 
-  const videoItem = container.querySelector('[data-action="download-video"]');
-  if (videoItem) {
-    const titleSpan = videoItem.querySelector(".snapload-menu-title");
-    const badgeSpan = videoItem.querySelector(".snapload-menu-badge");
-    if (titleSpan) {
-      titleSpan.textContent = `Download ${currentPrefs.videoFormat.toUpperCase()} (Video)`;
+  if (menu) {
+    const videoItem = menu.querySelector('[data-action="download-video"]');
+    if (videoItem) {
+      const titleSpan = videoItem.querySelector(".snapload-menu-title");
+      const badgeSpan = videoItem.querySelector(".snapload-menu-badge");
+      if (titleSpan) {
+        titleSpan.textContent = `Download ${currentPrefs.videoFormat.toUpperCase()} (Video)`;
+      }
+      if (badgeSpan) {
+        badgeSpan.textContent = currentPrefs.videoFormat.toUpperCase() + (currentPrefs.mediaType === "video" ? " • Default" : "");
+      }
     }
-    if (badgeSpan) {
-      badgeSpan.textContent = currentPrefs.videoFormat.toUpperCase() + (currentPrefs.mediaType === "video" ? " • Default" : "");
-    }
-  }
 
-  const audioItem = container.querySelector('[data-action="download-audio"]');
-  if (audioItem) {
-    const titleSpan = audioItem.querySelector(".snapload-menu-title");
-    const badgeSpan = audioItem.querySelector(".snapload-menu-badge");
-    if (titleSpan) {
-      titleSpan.textContent = `Download ${currentPrefs.audioFormat.toUpperCase()} (Audio)`;
-    }
-    if (badgeSpan) {
-      badgeSpan.textContent = currentPrefs.audioFormat.toUpperCase() + (currentPrefs.mediaType === "audio" ? " • Default" : "");
+    const audioItem = menu.querySelector('[data-action="download-audio"]');
+    if (audioItem) {
+      const titleSpan = audioItem.querySelector(".snapload-menu-title");
+      const badgeSpan = audioItem.querySelector(".snapload-menu-badge");
+      if (titleSpan) {
+        titleSpan.textContent = `Download ${currentPrefs.audioFormat.toUpperCase()} (Audio)`;
+      }
+      if (badgeSpan) {
+        badgeSpan.textContent = currentPrefs.audioFormat.toUpperCase() + (currentPrefs.mediaType === "audio" ? " • Default" : "");
+      }
     }
   }
 }
@@ -171,6 +233,10 @@ function updatePlayerLabels() {
 function createPlayerContainer(): HTMLElement {
   ensureGlobalDismiss();
   loadStoredPreferences();
+
+  // Remove any previous menu attached to player or body
+  const oldMenu = document.getElementById(DROPDOWN_MENU_ID);
+  if (oldMenu) oldMenu.remove();
 
   const container = document.createElement("div");
   container.id = PLAYER_CONTAINER_ID;
@@ -188,26 +254,26 @@ function createPlayerContainer(): HTMLElement {
   btn.setAttribute("title", `Download with SnapLoad (${defaultFmt})`);
   btn.setAttribute("aria-label", "Download with SnapLoad");
   btn.innerHTML = `
-    <svg height="100%" version="1.1" viewBox="0 0 36 36" width="100%">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
       <defs>
         <linearGradient id="snapYtpGrad" x1="0%" y1="0%" x2="100%" y2="100%">
           <stop offset="0%" stop-color="#00F2FE"/>
-          <stop offset="100%" stop-color="#818CF8"/>
+          <stop offset="100%" stop-color="#38BDF8"/>
         </linearGradient>
       </defs>
       <g class="snapload-ytp-icon-normal">
-        <path d="M 10 24 L 10 26 C 10 26.5 10.5 27 11 27 L 25 27 C 25.5 27 26 26.5 26 26 L 26 24" 
-              stroke="#FFFFFF" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
-        <path d="M 18 9 L 18 21 M 13 16 L 18 21 L 23 16" 
-              stroke="url(#snapYtpGrad)" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+        <path d="M12 3v10m0 0l-3.5-3.5m3.5 3.5l3.5-3.5" 
+              stroke="#00F2FE" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M4 17v1.5a2 2 0 002 2h12a2 2 0 002-2V17" 
+              stroke="#FFFFFF" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
       </g>
       <g class="snapload-ytp-icon-success" style="display: none;">
-        <path d="M 12 18 L 16 22 L 24 13" 
-              stroke="#10B981" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+        <path d="M5 13l4 4L19 7" 
+              stroke="#10B981" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
       </g>
       <g class="snapload-ytp-icon-error" style="display: none;">
-        <path d="M 13 13 L 23 23 M 23 13 L 13 23" 
-              stroke="#EF4444" stroke-width="2.5" stroke-linecap="round" fill="none"/>
+        <path d="M6 18L18 6M6 6l12 12" 
+              stroke="#EF4444" stroke-width="2.6" stroke-linecap="round"/>
       </g>
     </svg>
   `;
@@ -222,10 +288,10 @@ function createPlayerContainer(): HTMLElement {
   optBtn.setAttribute("aria-haspopup", "true");
   optBtn.setAttribute("aria-expanded", "false");
   optBtn.innerHTML = `
-    <svg height="100%" version="1.1" viewBox="0 0 36 36" width="100%">
-      <circle cx="18" cy="11" r="2.2" fill="#FFFFFF"/>
-      <circle cx="18" cy="18" r="2.2" fill="#FFFFFF"/>
-      <circle cx="18" cy="25" r="2.2" fill="#FFFFFF"/>
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+      <circle cx="12" cy="5" r="2.2" fill="#00F2FE"/>
+      <circle cx="12" cy="12" r="2.2" fill="#00F2FE"/>
+      <circle cx="12" cy="19" r="2.2" fill="#00F2FE"/>
     </svg>
   `;
 
@@ -234,7 +300,7 @@ function createPlayerContainer(): HTMLElement {
   const isVideoDefault = currentPrefs.mediaType === "video";
   const isAudioDefault = currentPrefs.mediaType === "audio";
 
-  // 3. Dropdown Menu (English options)
+  // 3. Dropdown Menu (appended outside left controls to avoid overflow clipping)
   const menu = document.createElement("div");
   menu.id = DROPDOWN_MENU_ID;
   menu.className = "snapload-ytp-menu hidden";
@@ -264,6 +330,27 @@ function createPlayerContainer(): HTMLElement {
   const successIcon = btn.querySelector(".snapload-ytp-icon-success") as HTMLElement | null;
   const errorIcon = btn.querySelector(".snapload-ytp-icon-error") as HTMLElement | null;
 
+  const positionMenu = () => {
+    const player = getPlayerContainer() || document.body;
+    if (menu.parentElement !== player) {
+      player.appendChild(menu);
+    }
+    const btnRect = optBtn.getBoundingClientRect();
+    const playerRect = player.getBoundingClientRect();
+
+    if (player === document.body) {
+      menu.style.position = "fixed";
+      menu.style.bottom = `${Math.max(10, window.innerHeight - btnRect.top + 8)}px`;
+      menu.style.left = `${Math.max(10, Math.min(window.innerWidth - 245, btnRect.left))}px`;
+    } else {
+      menu.style.position = "absolute";
+      const bottom = Math.max(10, (playerRect.bottom - btnRect.top) + 8);
+      const left = Math.max(8, Math.min(playerRect.width - 245, btnRect.left - playerRect.left));
+      menu.style.bottom = `${bottom}px`;
+      menu.style.left = `${left}px`;
+    }
+  };
+
   const closeMenu = () => {
     menu.classList.add("hidden");
     optBtn.setAttribute("aria-expanded", "false");
@@ -271,6 +358,7 @@ function createPlayerContainer(): HTMLElement {
 
   const openMenu = () => {
     updatePlayerLabels();
+    positionMenu();
     menu.classList.remove("hidden");
     optBtn.setAttribute("aria-expanded", "true");
   };
@@ -362,7 +450,10 @@ function createPlayerContainer(): HTMLElement {
 
   container.appendChild(btn);
   container.appendChild(optBtn);
-  container.appendChild(menu);
+
+  // Initial append to player or body so it is ready and not clipped by controls
+  const player = getPlayerContainer() || document.body;
+  player.appendChild(menu);
 
   return container;
 }
@@ -380,6 +471,8 @@ function injectPlayerButton() {
         return; // Already present in current controls, do not mutate DOM
       }
       existing.remove();
+      const existingMenu = document.getElementById(DROPDOWN_MENU_ID);
+      if (existingMenu) existingMenu.remove();
     }
 
     const container = createPlayerContainer();
@@ -490,84 +583,94 @@ function injectGlobalStyles() {
       .snapload-ytp-container {
         display: inline-flex !important;
         align-items: center !important;
-        position: relative !important;
+        gap: 6px !important;
         height: 100% !important;
-        vertical-align: top !important;
-        margin-left: 6px !important;
+        vertical-align: middle !important;
+        margin: 0 8px !important;
+        padding: 0 !important;
+        box-sizing: border-box !important;
+        position: relative !important;
+      }
+
+      /* Base styles for both SnapLoad player buttons */
+      .snapload-ytp-btn,
+      .snapload-ytp-options-btn {
+        box-sizing: border-box !important;
+        display: inline-flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        height: 32px !important;
+        vertical-align: middle !important;
+        text-align: center !important;
+        cursor: pointer !important;
+        padding: 0 !important;
+        margin: 0 !important;
+        background: rgba(15, 23, 42, 0.92) !important;
+        border: 1.5px solid #00F2FE !important;
+        outline: 1.5px solid rgba(0, 242, 254, 0.35) !important;
+        outline-offset: 1px !important;
+        border-radius: 8px !important;
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.6), 0 0 8px rgba(0, 242, 254, 0.3) !important;
+        opacity: 1 !important;
+        transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
+        user-select: none !important;
+        backdrop-filter: blur(8px) !important;
+        -webkit-backdrop-filter: blur(8px) !important;
       }
 
       /* Player Download Button */
       .snapload-ytp-btn {
-        display: inline-flex !important;
-        align-items: center !important;
-        justify-content: center !important;
-        width: 38px !important;
-        height: 100% !important;
-        vertical-align: top !important;
-        text-align: center !important;
-        cursor: pointer !important;
-        border: none !important;
-        background: transparent !important;
-        padding: 0 !important;
-        outline: none !important;
-        position: relative !important;
-        opacity: 0.9;
-        transition: opacity 0.2s ease, transform 0.15s ease;
-      }
-      .snapload-ytp-btn:hover {
-        opacity: 1 !important;
-        transform: scale(1.1);
-      }
-      .snapload-ytp-btn:active {
-        transform: scale(0.92);
-      }
-      .snapload-ytp-btn.downloading {
-        pointer-events: none;
+        width: 36px !important;
+        min-width: 36px !important;
       }
 
       /* 3-Dots Options Button */
       .snapload-ytp-options-btn {
-        display: inline-flex !important;
-        align-items: center !important;
-        justify-content: center !important;
-        width: 26px !important;
-        height: 100% !important;
-        vertical-align: top !important;
-        cursor: pointer !important;
-        border: none !important;
-        background: transparent !important;
-        padding: 0 !important;
-        outline: none !important;
-        position: relative !important;
-        opacity: 0.8;
-        transition: opacity 0.2s ease, transform 0.15s ease;
+        width: 30px !important;
+        min-width: 30px !important;
       }
+
+      .snapload-ytp-btn:hover,
       .snapload-ytp-options-btn:hover {
-        opacity: 1 !important;
-        transform: scale(1.15);
+        background: rgba(30, 41, 59, 0.98) !important;
+        border-color: #38BDF8 !important;
+        outline-color: rgba(56, 189, 248, 0.7) !important;
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.7), 0 0 14px rgba(0, 242, 254, 0.6) !important;
+        transform: translateY(-1px) scale(1.05) !important;
       }
+
+      .snapload-ytp-btn:active,
       .snapload-ytp-options-btn:active {
-        transform: scale(0.92);
+        transform: scale(0.95) !important;
+      }
+
+      .snapload-ytp-btn.downloading {
+        border-color: #10B981 !important;
+        outline-color: rgba(16, 185, 129, 0.5) !important;
+        box-shadow: 0 0 12px rgba(16, 185, 129, 0.5) !important;
+        pointer-events: none !important;
       }
 
       /* Dropdown Menu Above Player Controls */
       .snapload-ytp-menu {
         position: absolute !important;
-        bottom: calc(100% + 8px) !important;
-        left: 0 !important;
-        background: rgba(15, 23, 42, 0.97) !important;
+        background: rgba(15, 23, 42, 0.98) !important;
         backdrop-filter: blur(16px) !important;
         -webkit-backdrop-filter: blur(16px) !important;
-        border: 1px solid rgba(255, 255, 255, 0.15) !important;
-        border-radius: 10px !important;
-        padding: 6px !important;
-        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.75), 0 0 1px rgba(255, 255, 255, 0.2) !important;
-        z-index: 999999 !important;
+        border: 1.5px solid #00F2FE !important;
+        outline: 1.5px solid rgba(0, 242, 254, 0.35) !important;
+        outline-offset: 1px !important;
+        border-radius: 12px !important;
+        padding: 8px !important;
+        box-shadow: 0 12px 36px rgba(0, 0, 0, 0.85), 0 0 16px rgba(0, 242, 254, 0.25) !important;
+        z-index: 2147483647 !important;
         display: flex !important;
         flex-direction: column !important;
-        gap: 3px !important;
-        min-width: 215px !important;
+        gap: 4px !important;
+        min-width: 235px !important;
         user-select: none !important;
+        pointer-events: auto !important;
+        box-sizing: border-box !important;
         animation: snaploadFadeIn 0.18s ease-out !important;
       }
       .snapload-ytp-menu.hidden {
@@ -578,33 +681,39 @@ function injectGlobalStyles() {
         to { opacity: 1; transform: translateY(0); }
       }
       .snapload-menu-header {
-        font-size: 10px !important;
+        font-size: 11px !important;
         font-weight: 700 !important;
         color: #94A3B8 !important;
         text-transform: uppercase !important;
-        letter-spacing: 0.6px !important;
-        padding: 6px 10px 4px 10px !important;
-        font-family: "Roboto", -apple-system, sans-serif !important;
-        border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
-        margin-bottom: 3px !important;
+        letter-spacing: 0.8px !important;
+        padding: 6px 10px 6px 10px !important;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.1) !important;
+        margin-bottom: 4px !important;
+        line-height: normal !important;
       }
       .snapload-menu-item {
         display: flex !important;
         align-items: center !important;
         justify-content: space-between !important;
-        gap: 8px !important;
-        padding: 8px 10px !important;
-        border-radius: 6px !important;
+        gap: 10px !important;
+        padding: 9px 12px !important;
+        border-radius: 8px !important;
         cursor: pointer !important;
         color: #F8FAFC !important;
-        font-size: 12px !important;
+        font-size: 13px !important;
         font-weight: 500 !important;
-        font-family: "Roboto", -apple-system, sans-serif !important;
-        transition: background 0.15s ease, color 0.15s ease !important;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
+        line-height: normal !important;
+        transition: background 0.15s ease, color 0.15s ease, transform 0.1s ease !important;
       }
       .snapload-menu-item:hover {
-        background: rgba(255, 255, 255, 0.12) !important;
+        background: rgba(0, 242, 254, 0.15) !important;
         color: #00F2FE !important;
+        transform: translateX(2px) !important;
+      }
+      .snapload-menu-item:active {
+        transform: scale(0.98) !important;
       }
       .snapload-menu-item-left {
         display: flex !important;
@@ -614,14 +723,17 @@ function injectGlobalStyles() {
       .snapload-menu-badge {
         font-size: 10px !important;
         font-weight: 700 !important;
-        padding: 2px 6px !important;
-        border-radius: 4px !important;
+        padding: 2px 7px !important;
+        border-radius: 5px !important;
         background: rgba(0, 242, 254, 0.2) !important;
         color: #00F2FE !important;
+        border: 1px solid rgba(0, 242, 254, 0.4) !important;
+        letter-spacing: 0.3px !important;
       }
       .snapload-menu-badge.audio {
         background: rgba(168, 85, 247, 0.2) !important;
         color: #C084FC !important;
+        border: 1px solid rgba(168, 85, 247, 0.4) !important;
       }
 
       /* Action Bar Pill Button */
@@ -734,12 +846,16 @@ function injectAll() {
       injectShortsButton();
       const playerContainer = document.getElementById(PLAYER_CONTAINER_ID);
       if (playerContainer) playerContainer.remove();
+      const menuEl = document.getElementById(DROPDOWN_MENU_ID);
+      if (menuEl) menuEl.remove();
     } else {
       // Non-video page: clean up buttons
       const playerContainer = document.getElementById(PLAYER_CONTAINER_ID);
       if (playerContainer) playerContainer.remove();
       const shortsBtn = document.getElementById(SHORTS_BUTTON_ID);
       if (shortsBtn) shortsBtn.remove();
+      const menuEl = document.getElementById(DROPDOWN_MENU_ID);
+      if (menuEl) menuEl.remove();
     }
   } catch (_) {}
 }
