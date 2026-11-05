@@ -632,8 +632,8 @@ mod tests {
 
     #[test]
     fn test_sanitize_exe_path_unquoted_with_flag() {
-        let input = r"C:\Users\Konrad\AppData\Local\Programs\Opera GX\launcher.exe --flag";
-        let expected = r"C:\Users\Konrad\AppData\Local\Programs\Opera GX\launcher.exe";
+        let input = r"C:\Users\TestUser\AppData\Local\Programs\Opera GX\launcher.exe --flag";
+        let expected = r"C:\Users\TestUser\AppData\Local\Programs\Opera GX\launcher.exe";
         assert_eq!(BrowserDetector::sanitize_exe_path(input), expected);
     }
 
