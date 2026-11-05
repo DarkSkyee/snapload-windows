@@ -128,6 +128,46 @@ try {
   });
 } catch (_) {}
 
+function repositionDropdownMenu() {
+  const menu = document.getElementById(DROPDOWN_MENU_ID);
+  const optBtn = document.getElementById(OPTIONS_BUTTON_ID);
+  if (!menu || menu.classList.contains("hidden") || !optBtn) return;
+  const player = getPlayerContainer() || document.body;
+  if (menu.parentElement !== player) {
+    player.appendChild(menu);
+  }
+  const btnRect = optBtn.getBoundingClientRect();
+  const playerRect = player.getBoundingClientRect();
+  const menuWidth = menu.offsetWidth || 245;
+
+  if (player === document.body) {
+    menu.style.position = "fixed";
+    menu.style.top = "auto";
+    menu.style.right = "auto";
+    const b = btnRect.top > 0 ? (window.innerHeight - btnRect.top + 8) : 60;
+    const l = btnRect.left > 0 ? btnRect.left : 100;
+    menu.style.bottom = `${Math.max(10, b)}px`;
+    menu.style.left = `${Math.max(10, Math.min(window.innerWidth - menuWidth - 10, l))}px`;
+  } else {
+    try {
+      if (window.getComputedStyle(player).position === "static") {
+        player.style.position = "relative";
+      }
+    } catch (_) {}
+    menu.style.position = "absolute";
+    menu.style.top = "auto";
+    menu.style.right = "auto";
+    const b = (btnRect.top > 0 && playerRect.bottom >= btnRect.top)
+      ? (playerRect.bottom - btnRect.top + 8)
+      : 56;
+    const l = (btnRect.left > 0 && btnRect.left >= playerRect.left)
+      ? (btnRect.left - playerRect.left)
+      : 100;
+    menu.style.bottom = `${Math.max(10, b)}px`;
+    menu.style.left = `${Math.max(8, Math.min(playerRect.width - menuWidth - 8, l))}px`;
+  }
+}
+
 let isGlobalDismissBound = false;
 function ensureGlobalDismiss() {
   if (isGlobalDismissBound) return;
@@ -150,41 +190,25 @@ function ensureGlobalDismiss() {
     if (optBtn) optBtn.setAttribute("aria-expanded", "false");
   }, true);
 
+  // Capture phase Escape handler: close menu and prevent exiting fullscreen mode
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") {
       const menu = document.getElementById(DROPDOWN_MENU_ID);
       const optBtn = document.getElementById(OPTIONS_BUTTON_ID);
       if (menu && !menu.classList.contains("hidden")) {
+        e.preventDefault();
+        e.stopPropagation();
         menu.classList.add("hidden");
         if (optBtn) optBtn.setAttribute("aria-expanded", "false");
       }
     }
-  });
+  }, true);
 
-  const updateMenuPosition = () => {
-    const menu = document.getElementById(DROPDOWN_MENU_ID);
-    const optBtn = document.getElementById(OPTIONS_BUTTON_ID);
-    if (!menu || menu.classList.contains("hidden") || !optBtn) return;
-    const player = getPlayerContainer() || document.body;
-    const btnRect = optBtn.getBoundingClientRect();
-    const playerRect = player.getBoundingClientRect();
-
-    if (player === document.body) {
-      menu.style.position = "fixed";
-      menu.style.bottom = `${Math.max(10, window.innerHeight - btnRect.top + 8)}px`;
-      menu.style.left = `${Math.max(10, Math.min(window.innerWidth - 245, btnRect.left))}px`;
-    } else {
-      menu.style.position = "absolute";
-      const bottom = Math.max(10, (playerRect.bottom - btnRect.top) + 8);
-      const left = Math.max(8, Math.min(playerRect.width - 245, btnRect.left - playerRect.left));
-      menu.style.bottom = `${bottom}px`;
-      menu.style.left = `${left}px`;
-    }
-  };
-
-  window.addEventListener("resize", updateMenuPosition);
+  window.addEventListener("resize", repositionDropdownMenu);
   document.addEventListener("fullscreenchange", () => {
-    setTimeout(updateMenuPosition, 60);
+    repositionDropdownMenu();
+    setTimeout(repositionDropdownMenu, 100);
+    setTimeout(repositionDropdownMenu, 300);
   });
 }
 
@@ -255,12 +279,6 @@ function createPlayerContainer(): HTMLElement {
   btn.setAttribute("aria-label", "Download with SnapLoad");
   btn.innerHTML = `
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-      <defs>
-        <linearGradient id="snapYtpGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-          <stop offset="0%" stop-color="#00F2FE"/>
-          <stop offset="100%" stop-color="#38BDF8"/>
-        </linearGradient>
-      </defs>
       <g class="snapload-ytp-icon-normal">
         <path d="M12 3v10m0 0l-3.5-3.5m3.5 3.5l3.5-3.5" 
               stroke="#00F2FE" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
@@ -288,10 +306,10 @@ function createPlayerContainer(): HTMLElement {
   optBtn.setAttribute("aria-haspopup", "true");
   optBtn.setAttribute("aria-expanded", "false");
   optBtn.innerHTML = `
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-      <circle cx="12" cy="5" r="2.2" fill="#00F2FE"/>
-      <circle cx="12" cy="12" r="2.2" fill="#00F2FE"/>
-      <circle cx="12" cy="19" r="2.2" fill="#00F2FE"/>
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+      <circle cx="12" cy="5" r="2.5" fill="#00F2FE"/>
+      <circle cx="12" cy="12" r="2.5" fill="#00F2FE"/>
+      <circle cx="12" cy="19" r="2.5" fill="#00F2FE"/>
     </svg>
   `;
 
@@ -326,30 +344,19 @@ function createPlayerContainer(): HTMLElement {
     </div>
   `;
 
+  // Stop events on menu to prevent accidental YouTube play/pause or fullscreen toggles
+  const stopMenuEvent = (e: Event) => {
+    e.stopPropagation();
+  };
+  menu.addEventListener("click", stopMenuEvent);
+  menu.addEventListener("mousedown", stopMenuEvent);
+  menu.addEventListener("pointerdown", stopMenuEvent);
+  menu.addEventListener("dblclick", stopMenuEvent);
+  menu.addEventListener("contextmenu", stopMenuEvent);
+
   const normalIcon = btn.querySelector(".snapload-ytp-icon-normal") as HTMLElement | null;
   const successIcon = btn.querySelector(".snapload-ytp-icon-success") as HTMLElement | null;
   const errorIcon = btn.querySelector(".snapload-ytp-icon-error") as HTMLElement | null;
-
-  const positionMenu = () => {
-    const player = getPlayerContainer() || document.body;
-    if (menu.parentElement !== player) {
-      player.appendChild(menu);
-    }
-    const btnRect = optBtn.getBoundingClientRect();
-    const playerRect = player.getBoundingClientRect();
-
-    if (player === document.body) {
-      menu.style.position = "fixed";
-      menu.style.bottom = `${Math.max(10, window.innerHeight - btnRect.top + 8)}px`;
-      menu.style.left = `${Math.max(10, Math.min(window.innerWidth - 245, btnRect.left))}px`;
-    } else {
-      menu.style.position = "absolute";
-      const bottom = Math.max(10, (playerRect.bottom - btnRect.top) + 8);
-      const left = Math.max(8, Math.min(playerRect.width - 245, btnRect.left - playerRect.left));
-      menu.style.bottom = `${bottom}px`;
-      menu.style.left = `${left}px`;
-    }
-  };
 
   const closeMenu = () => {
     menu.classList.add("hidden");
@@ -358,9 +365,11 @@ function createPlayerContainer(): HTMLElement {
 
   const openMenu = () => {
     updatePlayerLabels();
-    positionMenu();
+    repositionDropdownMenu();
     menu.classList.remove("hidden");
     optBtn.setAttribute("aria-expanded", "true");
+    // Ensure position is accurate after display change
+    requestAnimationFrame(repositionDropdownMenu);
   };
 
   const triggerDownload = (type: "video" | "audio") => {
@@ -626,8 +635,8 @@ function injectGlobalStyles() {
 
       /* 3-Dots Options Button */
       .snapload-ytp-options-btn {
-        width: 30px !important;
-        min-width: 30px !important;
+        width: 32px !important;
+        min-width: 32px !important;
       }
 
       .snapload-ytp-btn:hover,
@@ -637,6 +646,13 @@ function injectGlobalStyles() {
         outline-color: rgba(56, 189, 248, 0.7) !important;
         box-shadow: 0 4px 14px rgba(0, 0, 0, 0.7), 0 0 14px rgba(0, 242, 254, 0.6) !important;
         transform: translateY(-1px) scale(1.05) !important;
+      }
+
+      .snapload-ytp-options-btn[aria-expanded="true"] {
+        background: rgba(30, 41, 59, 0.98) !important;
+        border-color: #38BDF8 !important;
+        outline-color: rgba(56, 189, 248, 0.8) !important;
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.7), 0 0 14px rgba(0, 242, 254, 0.6) !important;
       }
 
       .snapload-ytp-btn:active,

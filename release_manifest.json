@@ -5,7 +5,7 @@
     "artifacts":  {
                       "extension_firefox":  {
                                                 "url":  "https://github.com/DarkSkyee/snapload-windows/releases/download/v1.0.0/snapload-extension-firefox.zip",
-                                                "sha256":  "a72a288f46242ba481fddb0797485631c5fad0be744febdeeedd8ca86ec3e397",
+                                                "sha256":  "2a2d27cf5043c002fc89f520deb37b81d22ea0e29492e9dab1200714d0cf4d47",
                                                 "file":  "snapload-extension-firefox.zip"
                                             },
                       "engine":  {
@@ -15,12 +15,12 @@
                                  },
                       "setup":  {
                                     "url":  "https://github.com/DarkSkyee/snapload-windows/releases/download/v1.0.0/snapload-setup.exe",
-                                    "sha256":  "302e4c09dc6d2b02dd623e1d1f51a57b9249eb206d2fc3cc7a06dbf575fd7c2a",
+                                    "sha256":  "7138b8baf60b9b38f946e4dfd14b11db34ce4790f11eb7148463d9a8680f8927",
                                     "file":  "snapload-setup.exe"
                                 },
                       "extension_chromium":  {
                                                  "url":  "https://github.com/DarkSkyee/snapload-windows/releases/download/v1.0.0/snapload-extension-chromium.zip",
-                                                 "sha256":  "e1e28418f5b19abf64df52cec0a65c8ab5eac7ef8b11a526b969f13339d079cb",
+                                                 "sha256":  "b1de3670b3c78aa992594889e963c3b3150f78f3c2d54bd04ba249ae93776265",
                                                  "file":  "snapload-extension-chromium.zip"
                                              }
                   },
