@@ -5,7 +5,7 @@
     "artifacts":  {
                       "extension_firefox":  {
                                                 "url":  "https://github.com/DarkSkyee/snapload-windows/releases/download/v1.0.0/snapload-extension-firefox.zip",
-                                                "sha256":  "13d17e117a92ab4f471b24b7e14cdb02af0f14e1d87aee75d67525ffee0dc6ed",
+                                                "sha256":  "d2c9de9d1e726b4a2d5ff147270575e2f26352c8b457f65ec38771b013065258",
                                                 "file":  "snapload-extension-firefox.zip"
                                             },
                       "engine":  {
@@ -15,12 +15,12 @@
                                  },
                       "setup":  {
                                     "url":  "https://github.com/DarkSkyee/snapload-windows/releases/download/v1.0.0/snapload-setup.exe",
-                                    "sha256":  "3bcc8193f62e1336e1b1c27980e515da1ea1eb3dbbd48f577370ff236b6fc11e",
+                                    "sha256":  "c8941d2e15d2c1d06bbd39cf1697403a71bbe92d5c05b2db81f3f2b9f324b9b3",
                                     "file":  "snapload-setup.exe"
                                 },
                       "extension_chromium":  {
                                                  "url":  "https://github.com/DarkSkyee/snapload-windows/releases/download/v1.0.0/snapload-extension-chromium.zip",
-                                                 "sha256":  "4f11cc23c74ef65864fef235c20bd32498e1bde0a0617b464f6272f45b471d00",
+                                                 "sha256":  "fd38ce505db119935add6564a652704f453689604bad1ac14a49c11777d2a203",
                                                  "file":  "snapload-extension-chromium.zip"
                                              }
                   },
@@ -32,5 +32,5 @@
                                         "source":  "https://github.com/GyanD/codexffmpeg/releases/latest"
                                     }
                      },
-    "release_date":  "2026-11-05"
+    "release_date":  "2026-11-06"
 }

@@ -466,7 +466,7 @@ async function updateStep3ActiveBrowserCard() {
     if (!b.detected) {
       btnSubTitleEl.textContent = "Install browser on this computer or select another from the list above";
     } else if (willRestart) {
-      btnSubTitleEl.textContent = `Closes active window and launches ${b.name} with SnapLoad on YouTube`;
+      btnSubTitleEl.textContent = `Closes active window and launches ${b.name} with SnapLoad`;
     } else {
       btnSubTitleEl.textContent = `1-Click: deploys files, registers native host, and launches ${b.name}`;
     }
@@ -510,8 +510,8 @@ async function updateStep3ActiveBrowserCard() {
     if (step1Desc) step1Desc.textContent = "Firefox opens automatically with the extension installation prompt.";
     if (step2Title) step2Title.textContent = "Click 'Add'";
     if (step2Desc) step2Desc.textContent = "Click 'Add' in the Firefox pop-up to authorize SnapLoad.";
-    if (step3Title) step3Title.textContent = "Ready on YouTube";
-    if (step3Desc) step3Desc.textContent = "SnapLoad download buttons appear immediately on video pages.";
+    if (step3Title) step3Title.textContent = "Browser Ready";
+    if (step3Desc) step3Desc.textContent = "SnapLoad extension is installed and ready for media downloads.";
   } else {
     if (guideBrowserDesc) guideBrowserDesc.innerHTML = `<strong>Important:</strong> To ensure the extension stays permanently in ${b.name} (even after restarting the browser), follow these 3 simple steps once (the path is already copied to your clipboard!):`;
     if (step1Title) step1Title.textContent = "1. Extensions Tab";
@@ -534,7 +534,7 @@ document.getElementById("cb-restart-browser")?.addEventListener("change", () => 
   const willRestart = (b.detected && b.is_running && restartCb && restartCb.checked);
   if (willRestart) {
     btnTitleEl.textContent = `Install & Restart in ${b.name}`;
-    btnSubTitleEl.textContent = `Closes active window and launches ${b.name} with SnapLoad on YouTube`;
+    btnSubTitleEl.textContent = `Closes active window and launches ${b.name} with SnapLoad`;
   } else {
     btnTitleEl.textContent = `Auto-Install into ${b.name}`;
     btnSubTitleEl.textContent = `Registers host and deploys files (active upon relaunching ${b.name})`;

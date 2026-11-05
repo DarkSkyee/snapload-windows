@@ -81,35 +81,30 @@ impl SetupManager {
     pub fn get_bin_dir() -> PathBuf {
         let mut path = Self::get_app_dir();
         path.push("bin");
-        let _ = create_dir_all(&path);
         path
     }
 
     pub fn get_logs_dir() -> PathBuf {
         let mut path = Self::get_app_dir();
         path.push("logs");
-        let _ = create_dir_all(&path);
         path
     }
 
     pub fn get_extensions_dir() -> PathBuf {
         let mut path = Self::get_app_dir();
         path.push("extensions");
-        let _ = create_dir_all(&path);
         path
     }
 
     pub fn get_chromium_ext_dir() -> PathBuf {
         let mut path = Self::get_extensions_dir();
         path.push("chromium");
-        let _ = create_dir_all(&path);
         path
     }
 
     pub fn get_firefox_ext_dir() -> PathBuf {
         let mut path = Self::get_extensions_dir();
         path.push("firefox");
-        let _ = create_dir_all(&path);
         path
     }
 
@@ -1059,6 +1054,10 @@ $ws = New-Object -ComObject WScript.Shell;
 $dirs = @(
     "$env:USERPROFILE\Desktop",
     "C:\Users\Public\Desktop",
+    [Environment]::GetFolderPath("Desktop"),
+    [Environment]::GetFolderPath("CommonDesktopDirectory"),
+    "$env:USERPROFILE\OneDrive\Desktop",
+    "$env:USERPROFILE\OneDrive - Personal\Desktop",
     "$env:APPDATA\Microsoft\Windows\Start Menu\Programs",
     "$env:ProgramData\Microsoft\Windows\Start Menu\Programs",
     "$env:APPDATA\Microsoft\Internet Explorer\Quick Launch",
@@ -1066,7 +1065,7 @@ $dirs = @(
     "$env:APPDATA\Microsoft\Internet Explorer\Quick Launch\User Pinned\TaskBar"
 );
 foreach ($d in $dirs) {
-    if (Test-Path $d) {
+    if ($d -and (Test-Path $d)) {
         Get-ChildItem -Path $d -Recurse -Filter "*.lnk" -ErrorAction SilentlyContinue | ForEach-Object {
             try {
                 $lnkPath = $_.FullName;
@@ -1082,14 +1081,31 @@ foreach ($d in $dirs) {
                         Write-Output "DELETED:$lnkPath";
                     } else {
                         $args = '' + $sc.Arguments;
-                        if ($args -match "load-extension|DisableLoadExtensionCommandLineSwitch|snapload") {
-                            $cleanArgs = $args -replace '--load-extension="[^"]*"', '' -replace "--load-extension='[^']*'", '' -replace '--load-extension=\S+', '' -replace '--disable-features=DisableLoadExtensionCommandLineSwitch', '';
-                            $cleanArgs = $cleanArgs.Trim();
+                        $desc = '' + $sc.Description;
+                        $needsSave = $false;
+                        if ($args -match "load-extension|DisableLoadExtensionCommandLineSwitch|snapload|youtube") {
+                            $cleanArgs = $args -replace '(?i)--load-extension="[^"]*"', '' `
+                                               -replace "(?i)--load-extension='[^']*'", '' `
+                                               -replace '(?i)--load-extension=\S+', '' `
+                                               -replace '(?i)--disable-features=DisableLoadExtensionCommandLineSwitch', '' `
+                                               -replace '(?i)https?://[^\s]*youtube[^\s]*', '' `
+                                               -replace '(?i)(?:https?://)?(?:www\.)?youtube\.com[^\s]*', '' `
+                                               -replace '(?i)(?:https?://)?youtu\.be[^\s]*', '';
+                            $cleanArgs = [regex]::Replace($cleanArgs, '\s{2,}', ' ').Trim();
                             if ($cleanArgs -ne $args) {
                                 $sc.Arguments = $cleanArgs;
+                                $needsSave = $true;
+                            }
+                        }
+                        if ($desc -like "*snapload*") {
+                            $sc.Description = "";
+                            $needsSave = $true;
+                        }
+                        if ($needsSave) {
+                            try {
                                 $sc.Save();
                                 Write-Output "CLEANED:$lnkPath";
-                            }
+                            } catch {}
                         }
                     }
                 }
@@ -1126,12 +1142,18 @@ foreach ($d in $dirs) {
         let mut prefs_files = vec![
             profile_path.join("Preferences"),
             profile_path.join("Secure Preferences"),
+            profile_path.join("Preferences.backup"),
+            profile_path.join("Secure Preferences.backup"),
             profile_path.join("Default").join("Preferences"),
             profile_path.join("Default").join("Secure Preferences"),
+            profile_path.join("Default").join("Preferences.backup"),
+            profile_path.join("Default").join("Secure Preferences.backup"),
         ];
         if let Some(parent) = profile_path.parent() {
             prefs_files.push(parent.join("Preferences"));
             prefs_files.push(parent.join("Secure Preferences"));
+            prefs_files.push(parent.join("Preferences.backup"));
+            prefs_files.push(parent.join("Secure Preferences.backup"));
         }
         for prefs_file in &prefs_files {
             if prefs_file.exists() {
@@ -1179,6 +1201,23 @@ foreach ($d in $dirs) {
                             }
                         }
 
+                        // Remove from protection.macs (Chromium integrity validation)
+                        let mac_pointers = [
+                            "/protection/macs/extensions/settings",
+                            "/protection/macs/extensions/settings_encrypted_hash",
+                            "/protection/macs/extensions/opsettings",
+                            "/protection/macs/extensions/opsettings_encrypted_hash",
+                        ];
+                        for ptr in &mac_pointers {
+                            if let Some(mac_obj) = json.pointer_mut(ptr).and_then(|m| m.as_object_mut()) {
+                                for id in &snapload_ids {
+                                    if mac_obj.remove(id).is_some() {
+                                        modified = true;
+                                    }
+                                }
+                            }
+                        }
+
                         // Remove from pinned_extensions
                         if let Some(pinned) = json.pointer_mut("/extensions/pinned_extensions").and_then(|p| p.as_array_mut()) {
                             let orig_len = pinned.len();
@@ -1202,8 +1241,20 @@ foreach ($d in $dirs) {
                         }
 
                         if modified {
+                            if let Ok(meta) = std::fs::metadata(prefs_file) {
+                                let mut perms = meta.permissions();
+                                if perms.readonly() {
+                                    perms.set_readonly(false);
+                                    let _ = std::fs::set_permissions(prefs_file, perms);
+                                }
+                            }
                             if let Ok(serialized) = serde_json::to_string_pretty(&json) {
-                                let _ = std::fs::write(&prefs_file, serialized);
+                                for attempt in 0..5 {
+                                    if std::fs::write(prefs_file, &serialized).is_ok() {
+                                        break;
+                                    }
+                                    std::thread::sleep(std::time::Duration::from_millis(50 * (attempt + 1)));
+                                }
                             }
                         }
 
@@ -1215,12 +1266,29 @@ foreach ($d in $dirs) {
                             "Extension Rules",
                             "Extension Scripts",
                             "Sync Extension Settings",
+                            "DNR Extension Rules",
+                            "Managed Extension Settings",
                         ];
                         for sub in subdirs {
                             for id in &snapload_ids {
                                 let target = profile_path.join(sub).join(id);
                                 if target.exists() {
                                     let _ = Self::force_remove_dir_all(&target);
+                                }
+                            }
+                        }
+
+                        // Also clean IndexedDB directories matching snapload or extension id
+                        let idb_dir = profile_path.join("IndexedDB");
+                        if idb_dir.exists() {
+                            if let Ok(entries) = std::fs::read_dir(&idb_dir) {
+                                for e in entries.flatten() {
+                                    let name = e.file_name().to_string_lossy().to_string().to_lowercase();
+                                    for id in &snapload_ids {
+                                        if name.contains(&id.to_lowercase()) || name.contains("snapload") {
+                                            let _ = Self::force_remove_dir_all(&e.path());
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -1240,8 +1308,11 @@ foreach ($d in $dirs) {
                 "snapload-engine.exe",
                 "ffmpeg.exe",
                 "ffprobe.exe",
+                "ffplay.exe",
                 "yt-dlp.exe",
                 "opera.exe",
+                "opera_crashreporter.exe",
+                "opera_autoupdate.exe",
                 "chrome.exe",
                 "msedge.exe",
                 "brave.exe",
@@ -1253,7 +1324,20 @@ foreach ($d in $dirs) {
                 cmd.creation_flags(CREATE_NO_WINDOW);
                 let _ = cmd.output();
             }
-            std::thread::sleep(std::time::Duration::from_millis(600));
+            // Wait for browser & engine processes to fully terminate and release disk locks
+            for _ in 0..10 {
+                let mut any_running = false;
+                for b in &["chrome", "edge", "brave", "opera", "operagx", "firefox"] {
+                    if BrowserDetector::is_browser_process_running(b) {
+                        any_running = true;
+                        break;
+                    }
+                }
+                if !any_running {
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(150));
+            }
         }
 
         // 2. Clean all browser shortcuts (strip --load-extension flags, delete SnapLoad shortcuts)
@@ -1327,15 +1411,19 @@ foreach ($d in $dirs) {
         // 5. Uninstall FFmpeg (WinGet package + residual links and packages)
         #[cfg(windows)]
         {
-            let mut winget_cmd = std::process::Command::new("winget.exe");
-            winget_cmd.args(["uninstall", "--id", "Gyan.FFmpeg", "--silent", "--accept-source-agreements"]);
-            winget_cmd.creation_flags(CREATE_NO_WINDOW);
-            let _ = winget_cmd.output();
+            let winget_path = which("winget.exe")
+                .or_else(|| {
+                    std::env::var_os("LOCALAPPDATA")
+                        .map(|l| PathBuf::from(l).join("Microsoft").join("WindowsApps").join("winget.exe"))
+                })
+                .unwrap_or_else(|| PathBuf::from("winget.exe"));
 
-            let mut winget_cmd2 = std::process::Command::new("winget.exe");
-            winget_cmd2.args(["uninstall", "--id", "Gyan.FFmpeg.Shared", "--silent", "--accept-source-agreements"]);
-            winget_cmd2.creation_flags(CREATE_NO_WINDOW);
-            let _ = winget_cmd2.output();
+            for pkg_id in &["Gyan.FFmpeg", "Gyan.FFmpeg.Shared"] {
+                let mut winget_cmd = std::process::Command::new(&winget_path);
+                winget_cmd.args(["uninstall", "--id", pkg_id, "--silent", "--accept-source-agreements"]);
+                winget_cmd.creation_flags(CREATE_NO_WINDOW);
+                let _ = winget_cmd.output();
+            }
         }
 
         if let Some(local) = std::env::var_os("LOCALAPPDATA") {
@@ -1479,10 +1567,12 @@ foreach ($d in $dirs) {
         }
 
         if let Some(src) = engine_source {
+            let _ = create_dir_all(&bin_dir);
             std::fs::copy(&src, &engine_dest)
                 .map_err(|e| format!("Failed to copy engine binary from {:?}: {}", src, e))?;
             Ok(engine_dest)
         } else if !EMBEDDED_ENGINE.is_empty() {
+            let _ = create_dir_all(&bin_dir);
             std::fs::write(&engine_dest, EMBEDDED_ENGINE)
                 .map_err(|e| format!("Failed to deploy embedded engine: {}", e))?;
             Ok(engine_dest)
@@ -1829,20 +1919,12 @@ foreach ($d in $dirs) {
             }
         }
 
-        let ext_url_for_msg = match browser_id {
-            "firefox" => "about:addons",
-            "opera" | "operagx" => "opera://extensions",
-            "edge" => "edge://extensions",
-            "brave" => "brave://extensions",
-            _ => "chrome://extensions",
-        };
-
         let message = if browser_id == "firefox" {
             format!("SnapLoad extension prompt opened in {}! Click 'Add' to activate.", name)
         } else {
             format!(
-                "Browser {} launched with extension parameters! Extensions page ({}) and YouTube opened. Extension folder path copied to clipboard.",
-                name, ext_url_for_msg
+                "Browser {} launched with extension parameters! Extension folder path copied to clipboard.",
+                name
             )
         };
 
@@ -2134,6 +2216,104 @@ mod tests {
         let content = std::fs::read_to_string(&manifest).expect("manifest.json readable");
         assert!(content.contains("\"manifest_version\""), "manifest must have manifest_version");
         assert!(content.contains("SnapLoad"), "manifest must contain SnapLoad");
+    }
+
+    #[test]
+    fn test_get_paths_pure_without_creating_missing_subdirs() {
+        let dummy_nonexistent = std::env::temp_dir().join("snapload_test_nonexistent_dir_probe");
+        let _ = std::fs::remove_dir_all(&dummy_nonexistent);
+        assert!(!dummy_nonexistent.exists());
+
+        // Probe get_chromium_ext_dir and get_firefox_ext_dir logic
+        let p_chrom = SetupManager::get_chromium_ext_dir();
+        let p_ff = SetupManager::get_firefox_ext_dir();
+        let p_bin = SetupManager::get_bin_dir();
+        let p_logs = SetupManager::get_logs_dir();
+
+        // Verify that path getters return standard names without panicking
+        assert!(p_chrom.ends_with("chromium"));
+        assert!(p_ff.ends_with("firefox"));
+        assert!(p_bin.ends_with("bin"));
+        assert!(p_logs.ends_with("logs"));
+    }
+
+    #[test]
+    fn test_clean_extension_from_chromium_profile_scrubs_all_records() {
+        let temp_dir = std::env::temp_dir().join("snapload_profile_clean_test");
+        let _ = std::fs::remove_dir_all(&temp_dir);
+        let _ = std::fs::create_dir_all(&temp_dir);
+
+        let ext_id = "ikkidkbojpedpeaomipgioiigmjlpflg";
+        let prefs_json = serde_json::json!({
+            "extensions": {
+                "settings": {
+                    "ikkidkbojpedpeaomipgioiigmjlpflg": {
+                        "path": "C:\\fake\\snapload\\extensions\\chromium",
+                        "state": 1
+                    }
+                },
+                "opsettings": {
+                    "ikkidkbojpedpeaomipgioiigmjlpflg": {
+                        "path": "C:\\fake\\snapload\\extensions\\chromium",
+                        "state": 1
+                    }
+                },
+                "pinned_extensions": ["ikkidkbojpedpeaomipgioiigmjlpflg", "other_extension_12345"]
+            },
+            "protection": {
+                "macs": {
+                    "extensions": {
+                        "opsettings": {
+                            "ikkidkbojpedpeaomipgioiigmjlpflg": "HASH123",
+                            "other_extension_12345": "HASH456"
+                        },
+                        "opsettings_encrypted_hash": {
+                            "ikkidkbojpedpeaomipgioiigmjlpflg": "ENC123",
+                            "other_extension_12345": "ENC456"
+                        }
+                    }
+                }
+            }
+        });
+
+        let serialized = serde_json::to_string_pretty(&prefs_json).unwrap();
+        let sec_prefs = temp_dir.join("Secure Preferences");
+        let sec_prefs_bak = temp_dir.join("Secure Preferences.backup");
+        std::fs::write(&sec_prefs, &serialized).unwrap();
+        std::fs::write(&sec_prefs_bak, &serialized).unwrap();
+
+        // Subdirectories to be deleted
+        let ext_sub = temp_dir.join("Extensions").join(ext_id);
+        std::fs::create_dir_all(&ext_sub).unwrap();
+        assert!(ext_sub.exists());
+
+        let idb_sub = temp_dir.join("IndexedDB").join(format!("chrome-extension_{}_0.indexeddb.leveldb", ext_id));
+        std::fs::create_dir_all(&idb_sub).unwrap();
+        assert!(idb_sub.exists());
+
+        // Run cleaning
+        SetupManager::clean_extension_from_chromium_profile(&temp_dir, ext_id);
+
+        // Verify directories were deleted
+        assert!(!ext_sub.exists(), "Extension subdir must be removed");
+        assert!(!idb_sub.exists(), "IndexedDB subdir must be removed");
+
+        // Verify Secure Preferences was cleaned
+        for file in &[sec_prefs, sec_prefs_bak] {
+            let content = std::fs::read_to_string(file).unwrap();
+            let parsed: serde_json::Value = serde_json::from_str(&content).unwrap();
+            assert!(parsed.pointer("/extensions/settings/ikkidkbojpedpeaomipgioiigmjlpflg").is_none());
+            assert!(parsed.pointer("/extensions/opsettings/ikkidkbojpedpeaomipgioiigmjlpflg").is_none());
+            assert!(parsed.pointer("/protection/macs/extensions/opsettings/ikkidkbojpedpeaomipgioiigmjlpflg").is_none());
+            assert!(parsed.pointer("/protection/macs/extensions/opsettings_encrypted_hash/ikkidkbojpedpeaomipgioiigmjlpflg").is_none());
+            // Verify other extension was preserved
+            assert!(parsed.pointer("/protection/macs/extensions/opsettings/other_extension_12345").is_some());
+            let pinned = parsed.pointer("/extensions/pinned_extensions").and_then(|p| p.as_array()).unwrap();
+            assert_eq!(pinned.len(), 1);
+            assert_eq!(pinned[0].as_str(), Some("other_extension_12345"));
+        }
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
     }
 }
 
