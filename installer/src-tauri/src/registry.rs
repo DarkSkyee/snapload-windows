@@ -473,6 +473,7 @@ impl RegistryManager {
             format!(r"Software\Policies\Opera Software\ExtensionInstallSources"),
             format!(r"Software\Policies\Opera Software\Opera Stable\ExtensionInstallSources"),
             format!(r"Software\Policies\Opera Software\Opera GX Stable\ExtensionInstallSources"),
+            format!(r"Software\Policies\Mozilla\Firefox\ExtensionSettings\snapload@darkskyee.github.io"),
         ];
 
         let hkcu = RegKey::predef(HKEY_CURRENT_USER);
@@ -486,10 +487,32 @@ impl RegistryManager {
             }
         }
 
-        // Clean Firefox extension value
+        // Clean Firefox extension value in HKCU and HKLM
         if let Ok(key) = hkcu.open_subkey(r"Software\Mozilla\Firefox\Extensions") {
             let _ = key.delete_value("snapload@darkskyee.github.io");
-            removed.push("Firefox Extension Registration".to_string());
+            removed.push("HKCU Firefox Extension Registration".to_string());
+        }
+        if let Ok(key) = hklm.open_subkey(r"Software\Mozilla\Firefox\Extensions") {
+            let _ = key.delete_value("snapload@darkskyee.github.io");
+            removed.push("HKLM Firefox Extension Registration".to_string());
+        }
+
+        // Clean DeveloperModeAvailability policies if set by SnapLoad
+        let dev_policies = [
+            r"Software\Policies\Google\Chrome",
+            r"Software\Policies\Microsoft\Edge",
+            r"Software\Policies\BraveSoftware\Brave",
+            r"Software\Policies\Opera Software",
+            r"Software\Policies\Opera Software\Opera Stable",
+            r"Software\Policies\Opera Software\Opera GX Stable",
+        ];
+        for pol in dev_policies {
+            if let Ok(key) = hkcu.open_subkey(pol) {
+                let _ = key.delete_value("DeveloperModeAvailability");
+            }
+            if let Ok(key) = hklm.open_subkey(pol) {
+                let _ = key.delete_value("DeveloperModeAvailability");
+            }
         }
 
         removed

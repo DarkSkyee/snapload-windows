@@ -1,5 +1,5 @@
 use crate::browser::BrowserDetector;
-use crate::registry::RegistryManager;
+use crate::registry::{compute_path_extension_ids, RegistryManager};
 use serde::{Deserialize, Serialize};
 use std::fs::create_dir_all;
 use std::path::{Path, PathBuf};
@@ -115,8 +115,6 @@ impl SetupManager {
 
     pub fn get_paths() -> ExtensionPaths {
         let app_dir = Self::get_app_dir().to_string_lossy().to_string();
-        let _ = Self::ensure_chromium_ext_deployed();
-        let _ = Self::ensure_firefox_ext_deployed();
         let chromium_dir = Self::get_chromium_ext_dir().to_string_lossy().to_string();
         let firefox_xpi = Self::get_firefox_ext_dir()
             .join("snapload-extension-firefox.xpi")
@@ -303,7 +301,7 @@ impl SetupManager {
                          try {{ \
                              $sc = $ws.CreateShortcut($_.FullName); \
                              $scTarget = ('' + $sc.TargetPath).ToLower(); \
-                             $isMatch = ($scTarget.Length -gt 0 -and ($scTarget -eq $cleanTarget -or $scTarget.EndsWith($exeName) -or $scTarget -like ('*\\' + $exeName) -or ($exeName -like '*opera*.exe' -and ($scTarget.EndsWith('launcher.exe') -or $scTarget -like '*\\opera*')))); \
+                             $isMatch = ($scTarget.Length -gt 0 -and ($scTarget -eq $cleanTarget -or $scTarget.EndsWith($exeName) -or $scTarget -like ('*\\' + $exeName) -or ($exeName -like '*opera*.exe' -and ($scTarget -like '*\\opera*launcher.exe' -or $scTarget -like '*\\opera*\\launcher.exe' -or $scTarget -like '*\\opera*\\opera.exe')))); \
                              if ($isMatch) {{ \
                                  $curArgs = ('' + $sc.Arguments).Trim(); \
                                  $newArgs = if ($curArgs -notlike \"*--load-extension=*\") {{ if ($curArgs.Length -gt 0) {{ $curArgs + ' ' + $flag }} else {{ $flag }} }} else {{ $curArgs }}; \
@@ -895,7 +893,14 @@ impl SetupManager {
 
     pub fn force_remove_dir_all(dir: &Path) -> bool {
         if !dir.exists() {
-            return false;
+            return true;
+        }
+        if let Ok(meta) = std::fs::metadata(dir) {
+            let mut perms = meta.permissions();
+            if perms.readonly() {
+                perms.set_readonly(false);
+                let _ = std::fs::set_permissions(dir, perms);
+            }
         }
         // Recursively reset readonly flag on everything and delete children
         if let Ok(entries) = std::fs::read_dir(dir) {
@@ -908,13 +913,14 @@ impl SetupManager {
                 }
             }
         }
-        if std::fs::remove_dir_all(dir).is_ok() {
+        let _ = std::fs::remove_dir_all(dir);
+        if !dir.exists() {
             return true;
         }
         #[cfg(windows)]
         {
             let mut cmd = std::process::Command::new("cmd.exe");
-            cmd.args(["/C", "rd", "/S", "/Q", &dir.to_string_lossy()]);
+            cmd.args(["/C", "rd", "/S", "/Q", &format!("\"{}\"", dir.to_string_lossy())]);
             cmd.creation_flags(CREATE_NO_WINDOW);
             let _ = cmd.output();
         }
@@ -1044,7 +1050,79 @@ impl SetupManager {
         }
     }
 
+    pub fn clean_all_browser_shortcuts() -> Vec<String> {
+        let mut logs = Vec::new();
+        #[cfg(windows)]
+        {
+            let ps_script = r#"
+$ws = New-Object -ComObject WScript.Shell;
+$dirs = @(
+    "$env:USERPROFILE\Desktop",
+    "C:\Users\Public\Desktop",
+    "$env:APPDATA\Microsoft\Windows\Start Menu\Programs",
+    "$env:ProgramData\Microsoft\Windows\Start Menu\Programs",
+    "$env:APPDATA\Microsoft\Internet Explorer\Quick Launch",
+    "$env:APPDATA\Microsoft\Internet Explorer\Quick Launch\User Pinned\StartMenu",
+    "$env:APPDATA\Microsoft\Internet Explorer\Quick Launch\User Pinned\TaskBar"
+);
+foreach ($d in $dirs) {
+    if (Test-Path $d) {
+        Get-ChildItem -Path $d -Recurse -Filter "*.lnk" -ErrorAction SilentlyContinue | ForEach-Object {
+            try {
+                $lnkPath = $_.FullName;
+                $name = $_.Name.ToLower();
+                if ($name -like "*snapload*") {
+                    Remove-Item -Force $lnkPath -ErrorAction SilentlyContinue;
+                    Write-Output "DELETED:$lnkPath";
+                } else {
+                    $sc = $ws.CreateShortcut($lnkPath);
+                    $targetPath = ('' + $sc.TargetPath).ToLower();
+                    if ($targetPath -like "*snapload*") {
+                        Remove-Item -Force $lnkPath -ErrorAction SilentlyContinue;
+                        Write-Output "DELETED:$lnkPath";
+                    } else {
+                        $args = '' + $sc.Arguments;
+                        if ($args -match "load-extension|DisableLoadExtensionCommandLineSwitch|snapload") {
+                            $cleanArgs = $args -replace '--load-extension="[^"]*"', '' -replace "--load-extension='[^']*'", '' -replace '--load-extension=\S+', '' -replace '--disable-features=DisableLoadExtensionCommandLineSwitch', '';
+                            $cleanArgs = $cleanArgs.Trim();
+                            if ($cleanArgs -ne $args) {
+                                $sc.Arguments = $cleanArgs;
+                                $sc.Save();
+                                Write-Output "CLEANED:$lnkPath";
+                            }
+                        }
+                    }
+                }
+            } catch {}
+        }
+    }
+}
+"#;
+            let mut cmd = std::process::Command::new("powershell.exe");
+            cmd.creation_flags(CREATE_NO_WINDOW);
+            cmd.args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", ps_script]);
+            if let Ok(output) = cmd.output() {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                for line in stdout.lines() {
+                    let line = line.trim();
+                    if !line.is_empty() {
+                        logs.push(format!("Shortcut: {}", line));
+                    }
+                }
+            }
+        }
+        logs
+    }
+
     pub fn clean_extension_from_chromium_profile(profile_path: &Path, ext_id: &str) {
+        let mut target_ids = vec![ext_id.to_string()];
+
+        // Include all path-derived unpacked extension IDs
+        if let Some(local_app_data) = std::env::var_os("LOCALAPPDATA").or_else(|| std::env::var_os("APPDATA")) {
+            let chrom_dir = PathBuf::from(local_app_data).join("SnapLoad").join("extensions").join("chromium");
+            target_ids.extend(compute_path_extension_ids(&chrom_dir));
+        }
+
         let mut prefs_files = vec![
             profile_path.join("Preferences"),
             profile_path.join("Secure Preferences"),
@@ -1061,36 +1139,65 @@ impl SetupManager {
                     if let Ok(mut json) = serde_json::from_str::<serde_json::Value>(&content) {
                         let mut modified = false;
 
-                        if let Some(settings) = json.pointer_mut("/extensions/settings") {
-                            if let Some(map) = settings.as_object_mut() {
-                                if map.remove(ext_id).is_some() {
+                        // Identify all SnapLoad extension IDs from settings and opsettings
+                        let mut snapload_ids = target_ids.clone();
+                        for key in &["/extensions/settings", "/extensions/opsettings"] {
+                            if let Some(settings) = json.pointer(key).and_then(|s| s.as_object()) {
+                                for (k, v) in settings {
+                                    let path_match = v.get("path")
+                                        .and_then(|p| p.as_str())
+                                        .map(|p| p.to_lowercase().contains("snapload"))
+                                        .unwrap_or(false);
+                                    let name_match = v.pointer("/manifest/name")
+                                        .and_then(|n| n.as_str())
+                                        .map(|n| n.to_lowercase().contains("snapload"))
+                                        .unwrap_or(false);
+                                    if path_match || name_match {
+                                        snapload_ids.push(k.clone());
+                                    }
+                                }
+                            }
+                        }
+                        snapload_ids.sort();
+                        snapload_ids.dedup();
+
+                        // Remove from standard settings (Chrome, Edge, Brave)
+                        if let Some(settings) = json.pointer_mut("/extensions/settings").and_then(|s| s.as_object_mut()) {
+                            for id in &snapload_ids {
+                                if settings.remove(id).is_some() {
                                     modified = true;
                                 }
                             }
                         }
-                        if let Some(opsettings) = json.pointer_mut("/extensions/opsettings") {
-                            if let Some(map) = opsettings.as_object_mut() {
-                                if map.remove(ext_id).is_some() {
+
+                        // Remove from opsettings (Opera / Opera GX)
+                        if let Some(opsettings) = json.pointer_mut("/extensions/opsettings").and_then(|s| s.as_object_mut()) {
+                            for id in &snapload_ids {
+                                if opsettings.remove(id).is_some() {
                                     modified = true;
                                 }
                             }
                         }
-                        if let Some(pinned) = json.pointer_mut("/extensions/pinned_extensions") {
-                            if let Some(arr) = pinned.as_array_mut() {
-                                let orig_len = arr.len();
-                                arr.retain(|v| v.as_str().map(|s| s != ext_id).unwrap_or(true));
-                                if arr.len() != orig_len {
-                                    modified = true;
-                                }
+
+                        // Remove from pinned_extensions
+                        if let Some(pinned) = json.pointer_mut("/extensions/pinned_extensions").and_then(|p| p.as_array_mut()) {
+                            let orig_len = pinned.len();
+                            pinned.retain(|v| {
+                                v.as_str().map(|s| !snapload_ids.contains(&s.to_string())).unwrap_or(true)
+                            });
+                            if pinned.len() != orig_len {
+                                modified = true;
                             }
                         }
-                        if let Some(toolbar) = json.pointer_mut("/extensions/toolbar") {
-                            if let Some(arr) = toolbar.as_array_mut() {
-                                let orig_len = arr.len();
-                                arr.retain(|v| v.as_str().map(|s| s != ext_id).unwrap_or(true));
-                                if arr.len() != orig_len {
-                                    modified = true;
-                                }
+
+                        // Remove from toolbar
+                        if let Some(toolbar) = json.pointer_mut("/extensions/toolbar").and_then(|t| t.as_array_mut()) {
+                            let orig_len = toolbar.len();
+                            toolbar.retain(|v| {
+                                v.as_str().map(|s| !snapload_ids.contains(&s.to_string())).unwrap_or(true)
+                            });
+                            if toolbar.len() != orig_len {
+                                modified = true;
                             }
                         }
 
@@ -1099,24 +1206,26 @@ impl SetupManager {
                                 let _ = std::fs::write(&prefs_file, serialized);
                             }
                         }
+
+                        // Remove all extension subdirectories for all identified snapload_ids
+                        let subdirs = [
+                            "Extensions",
+                            "Local Extension Settings",
+                            "Extension State",
+                            "Extension Rules",
+                            "Extension Scripts",
+                            "Sync Extension Settings",
+                        ];
+                        for sub in subdirs {
+                            for id in &snapload_ids {
+                                let target = profile_path.join(sub).join(id);
+                                if target.exists() {
+                                    let _ = Self::force_remove_dir_all(&target);
+                                }
+                            }
+                        }
                     }
                 }
-            }
-        }
-
-        // 3. Remove all extension subdirectories
-        let subdirs = [
-            "Extensions",
-            "Local Extension Settings",
-            "Extension State",
-            "Extension Rules",
-            "Extension Scripts",
-            "Sync Extension Settings",
-        ];
-        for sub in subdirs {
-            let target = profile_path.join(sub).join(ext_id);
-            if target.exists() {
-                let _ = Self::force_remove_dir_all(&target);
             }
         }
     }
@@ -1130,6 +1239,7 @@ impl SetupManager {
             let procs = [
                 "snapload-engine.exe",
                 "ffmpeg.exe",
+                "ffprobe.exe",
                 "yt-dlp.exe",
                 "opera.exe",
                 "chrome.exe",
@@ -1146,14 +1256,18 @@ impl SetupManager {
             std::thread::sleep(std::time::Duration::from_millis(600));
         }
 
-        // 2. Unregister all registry keys
+        // 2. Clean all browser shortcuts (strip --load-extension flags, delete SnapLoad shortcuts)
+        let cleaned_shortcuts = Self::clean_all_browser_shortcuts();
+        logs.extend(cleaned_shortcuts);
+
+        // 3. Unregister all registry keys
         let removed_keys = RegistryManager::unregister_all();
         logs.push(format!(
             "Removed {} registry registrations",
             removed_keys.len()
         ));
 
-        // 3. Deep clean extension from all browser profiles
+        // 4. Deep clean extension from all browser profiles
         let ext_id = "ikkidkbojpedpeaomipgioiigmjlpflg";
         let browsers = ["chrome", "edge", "brave", "opera", "operagx", "firefox"];
         for b_id in browsers {
@@ -1173,7 +1287,9 @@ impl SetupManager {
                                     if let Some(arr) = addons.as_array_mut() {
                                         let orig_len = arr.len();
                                         arr.retain(|a| {
-                                            a.get("id").and_then(|v| v.as_str()) != Some("snapload@darkskyee.github.io")
+                                            let id_match = a.get("id").and_then(|v| v.as_str()) == Some("snapload@darkskyee.github.io");
+                                            let path_match = a.get("path").and_then(|v| v.as_str()).map(|p| p.to_lowercase().contains("snapload")).unwrap_or(false);
+                                            !id_match && !path_match
                                         });
                                         if arr.len() != orig_len {
                                             if let Ok(serialized) = serde_json::to_string_pretty(&j) {
@@ -1208,7 +1324,47 @@ impl SetupManager {
             }
         }
 
-        // 4. Force remove all binaries: ffmpeg.exe, yt-dlp.exe, snapload-engine.exe
+        // 5. Uninstall FFmpeg (WinGet package + residual links and packages)
+        #[cfg(windows)]
+        {
+            let mut winget_cmd = std::process::Command::new("winget.exe");
+            winget_cmd.args(["uninstall", "--id", "Gyan.FFmpeg", "--silent", "--accept-source-agreements"]);
+            winget_cmd.creation_flags(CREATE_NO_WINDOW);
+            let _ = winget_cmd.output();
+
+            let mut winget_cmd2 = std::process::Command::new("winget.exe");
+            winget_cmd2.args(["uninstall", "--id", "Gyan.FFmpeg.Shared", "--silent", "--accept-source-agreements"]);
+            winget_cmd2.creation_flags(CREATE_NO_WINDOW);
+            let _ = winget_cmd2.output();
+        }
+
+        if let Some(local) = std::env::var_os("LOCALAPPDATA") {
+            let winget_links = PathBuf::from(&local).join("Microsoft").join("WinGet").join("Links");
+            for exe in &["ffmpeg.exe", "ffprobe.exe", "ffplay.exe"] {
+                let f = winget_links.join(exe);
+                if f.exists() {
+                    let _ = Self::force_remove_file(&f);
+                    logs.push(format!("Removed WinGet FFmpeg link: {:?}", f));
+                }
+            }
+
+            let winget_pkgs = PathBuf::from(&local).join("Microsoft").join("WinGet").join("Packages");
+            if winget_pkgs.exists() {
+                if let Ok(entries) = std::fs::read_dir(&winget_pkgs) {
+                    for entry in entries.flatten() {
+                        let p = entry.path();
+                        if let Some(name) = p.file_name().and_then(|n| n.to_str()) {
+                            if name.to_lowercase().contains("ffmpeg") || name.to_lowercase().contains("gyan") {
+                                let _ = Self::force_remove_dir_all(&p);
+                                logs.push(format!("Removed WinGet FFmpeg package: {:?}", p));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // 6. Force remove all binaries: ffmpeg.exe, ffprobe.exe, yt-dlp.exe, snapload-engine.exe
         let mut candidate_bin_dirs = Vec::new();
         if let Some(local) = std::env::var_os("LOCALAPPDATA") {
             candidate_bin_dirs.push(PathBuf::from(&local).join("SnapLoad").join("bin"));
@@ -1220,7 +1376,7 @@ impl SetupManager {
         }
 
         for b_dir in &candidate_bin_dirs {
-            for exe in &["ffmpeg.exe", "yt-dlp.exe", "snapload-engine.exe"] {
+            for exe in &["ffmpeg.exe", "ffprobe.exe", "yt-dlp.exe", "snapload-engine.exe"] {
                 let f = b_dir.join(exe);
                 if f.exists() {
                     if Self::force_remove_file(&f) {
@@ -1230,7 +1386,7 @@ impl SetupManager {
             }
         }
 
-        // 5. Completely remove SnapLoad application directories
+        // 7. Completely remove SnapLoad application directories
         let mut app_dirs_to_clean = Vec::new();
         if let Some(local) = std::env::var_os("LOCALAPPDATA") {
             app_dirs_to_clean.push(PathBuf::from(&local).join("SnapLoad"));
@@ -1249,7 +1405,7 @@ impl SetupManager {
             }
         }
 
-        // 6. Clean up any leftover shortcuts from Desktop and Start Menu
+        // 8. Clean up any leftover shortcuts from Desktop and Start Menu
         let cleaned_sc = Self::cleanup_desktop_shortcuts();
         logs.extend(cleaned_sc);
 
@@ -1276,7 +1432,7 @@ impl SetupManager {
             }
         }
 
-        logs.push("SnapLoad components and browser extensions uninstalled. Downloaded media preserved.".to_string());
+        logs.push("SnapLoad components, browser extensions, and dependencies uninstalled. Downloaded media preserved.".to_string());
         Ok(logs)
     }
 
@@ -1597,17 +1753,16 @@ impl SetupManager {
             let _ = RegistryManager::register_firefox_extension(&firefox_xpi);
             logs.push("Registered Firefox extension in Windows Registry".to_string());
 
-            // Launch Firefox with XPI path to prompt installation and open YouTube
+            // Launch Firefox with XPI path to prompt installation
             #[cfg(windows)]
             {
                 use std::os::windows::process::CommandExt;
                 const CREATE_NEW_PROCESS_GROUP: u32 = 0x00000200;
                 let mut cmd = std::process::Command::new(&exe_path);
                 cmd.arg(firefox_xpi.to_string_lossy().to_string());
-                cmd.arg("https://www.youtube.com");
                 cmd.creation_flags(CREATE_NEW_PROCESS_GROUP);
                 cmd.spawn().map_err(|e| format!("Failed to launch Firefox: {}", e))?;
-                logs.push("Launched Firefox with YouTube and extension prompt".to_string());
+                logs.push("Launched Firefox with extension prompt".to_string());
             }
         } else {
             let chrome_unpacked = Self::ensure_chromium_ext_deployed()?;
@@ -1634,13 +1789,6 @@ impl SetupManager {
                 Err(e) => logs.push(format!("Shortcut note: {}", e)),
             }
 
-            let ext_url = match browser_id {
-                "opera" | "operagx" => "opera://extensions",
-                "edge" => "edge://extensions",
-                "brave" => "brave://extensions",
-                _ => "chrome://extensions",
-            };
-
             // Launch browser in detached process with --load-extension="<path>"
             #[cfg(windows)]
             {
@@ -1654,18 +1802,12 @@ impl SetupManager {
                 
                 // 2. Pass feature flag to allow sideloading in older/unbranded builds
                 cmd.raw_arg("--disable-features=DisableLoadExtensionCommandLineSwitch");
-                
-                // 3. Open extensions manager page so user can verify / 1-click 'Load unpacked'
-                cmd.raw_arg(ext_url);
-                
-                // 4. Also open YouTube
-                cmd.raw_arg("https://www.youtube.com");
 
                 cmd.creation_flags(CREATE_NEW_PROCESS_GROUP);
                 cmd.spawn().map_err(|e| format!("Failed to launch {}: {}", name, e))?;
                 logs.push(format!(
-                    "Launched {} with --load-extension=\"{}\", extensions manager ({}), and YouTube",
-                    name, ext_path_clean, ext_url
+                    "Launched {} with --load-extension=\"{}\"",
+                    name, ext_path_clean
                 ));
             }
         }
@@ -1947,6 +2089,12 @@ mod tests {
     #[test]
     fn test_cleanup_desktop_shortcuts_does_not_panic() {
         let logs = SetupManager::cleanup_desktop_shortcuts();
+        let _ = logs;
+    }
+
+    #[test]
+    fn test_clean_all_browser_shortcuts_does_not_panic() {
+        let logs = SetupManager::clean_all_browser_shortcuts();
         let _ = logs;
     }
 

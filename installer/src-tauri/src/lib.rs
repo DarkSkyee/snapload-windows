@@ -179,7 +179,6 @@ fn launch_browser_with_extension(browser_id: String) -> Result<String, String> {
             let mut cmd = std::process::Command::new(&clean_exe);
             cmd.raw_arg(format!("--load-extension=\"{}\"", ext_path_str));
             cmd.raw_arg("--disable-features=DisableLoadExtensionCommandLineSwitch");
-            cmd.raw_arg("https://www.youtube.com");
             cmd.creation_flags(CREATE_NEW_PROCESS_GROUP);
             cmd.spawn().map_err(|e| format!("Failed to launch {}: {}", browser_id, e))?;
             Ok(format!("Launched {} with SnapLoad loaded!", browser_id))

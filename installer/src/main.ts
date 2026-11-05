@@ -587,7 +587,7 @@ document.getElementById("btn-auto-install")?.addEventListener("click", async () 
       statusBox.className = "auto-install-status-box success";
       if (statusIcon) statusIcon.textContent = "✓";
       statusTitle.textContent = `Configured ${res.browser_name} for SnapLoad!`;
-      statusDesc.innerHTML = `${res.message}<br><br>💡 <strong>Permanent Setup Tip:</strong> In the opened extensions tab, ensure <em>Developer mode</em> is enabled and click <em>Load unpacked</em> (paste path with <kbd>Ctrl+V</kbd>) so the extension remains active permanently after restarts!`;
+      statusDesc.innerHTML = `${res.message}<br><br>💡 <strong>Permanent Setup Tip:</strong> In your browser's extensions tab (use the button below to open), ensure <em>Developer mode</em> is enabled and click <em>Load unpacked</em> (paste path with <kbd>Ctrl+V</kbd>) so the extension remains active permanently after restarts!`;
     }
 
     renderStep3BrowserPicker();
@@ -1010,13 +1010,25 @@ document.getElementById("btn-open-dl-dir")?.addEventListener("click", async () =
 
 // Uninstall
 document.getElementById("uninstall-btn")?.addEventListener("click", async () => {
-  if (confirm("Are you sure you want to clean uninstall SnapLoad? Engine binaries and registry keys will be removed. Your downloaded media in Downloads will remain untouched.")) {
+  if (confirm("Are you sure you want to clean uninstall SnapLoad? Engine binaries, browser extensions, FFmpeg and registry keys will be removed. Your downloaded media in Downloads will remain untouched.")) {
+    const btn = document.getElementById("uninstall-btn") as HTMLButtonElement;
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = "Uninstalling...";
+    }
     try {
       await invoke<string[]>("uninstall_snapload");
-      alert("SnapLoad desktop components and Native Messaging hosts have been cleanly uninstalled.");
-      window.location.reload();
+      alert("SnapLoad desktop components, browser extensions, and dependencies have been cleanly uninstalled.");
+      cachedPaths = null;
+      await runDiagnostics();
+      showToast("Clean uninstallation completed!");
     } catch (e: any) {
       alert(`Uninstall result: ${e}`);
+    } finally {
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = "Clean Uninstall SnapLoad";
+      }
     }
   }
 });
