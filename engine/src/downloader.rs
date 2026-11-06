@@ -305,17 +305,20 @@ impl DownloadManager {
             }
         };
 
-        let mut ffmpeg_path = DependencyManager::find_ffmpeg(&config);
-        if ffmpeg_path.is_none() {
-            Logger::warn(&format!(
-                "FFmpeg not found locally for download {}. Attempting automated download...",
-                download_id
-            ));
-            ffmpeg_path = DependencyManager::auto_download_ffmpeg().await;
-        }
+        let ffmpeg_path = DependencyManager::find_ffmpeg(&config);
 
         let manager = self.clone();
         tokio::spawn(async move {
+            let active_ffmpeg = if ffmpeg_path.is_none() {
+                Logger::warn(&format!(
+                    "FFmpeg not found locally for download {}. Attempting automated download...",
+                    download_id
+                ));
+                DependencyManager::auto_download_ffmpeg().await
+            } else {
+                ffmpeg_path
+            };
+
             manager
                 .execute_download(
                     download_id,
@@ -323,7 +326,7 @@ impl DownloadManager {
                     payload,
                     validated_cookies,
                     ytdlp_path,
-                    ffmpeg_path,
+                    active_ffmpeg,
                     output_dir,
                     response_tx,
                 )
@@ -560,11 +563,14 @@ impl DownloadManager {
 
                 // If yt-dlp left unmerged separate stream fragments (e.g. .f137.mp4 and .f140.m4a),
                 // attempt automatic remuxing if FFmpeg is available
+                let active_ffmpeg = ffmpeg_path.clone().or_else(|| {
+                    DependencyManager::find_ffmpeg(&crate::config::EngineConfig::default())
+                });
                 if let Some(merged) = Self::try_merge_unmerged_fragments(
                     &output_dir,
                     &unique_prefix,
                     &video_fmt,
-                    ffmpeg_path.as_deref(),
+                    active_ffmpeg.as_deref(),
                 )
                 .await
                 {
@@ -936,12 +942,67 @@ impl DownloadManager {
             let without_ext = &file_name[..dot_idx];
             if let Some(second_dot_idx) = without_ext.rfind('.') {
                 let fmt = &without_ext[second_dot_idx + 1..];
-                if fmt.starts_with('f')
-                    && fmt.len() >= 2
-                    && fmt[1..].chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
-                {
-                    return true;
+                // Check if fmt matches genuine yt-dlp stream fragment format codes:
+                // 1. YouTube numeric itags: 'f' followed strictly by digits (e.g. f137, f140, f251, f399, f22)
+                // 2. Storyboards: 'fsb' followed strictly by digits (e.g. fsb0, fsb1)
+                // 3. Shorthand stream tags: 'fba' (best audio), 'fbv' (best video)
+                // 4. Resolution tags: 'f' followed by digits + 'p' (e.g. f1080p, f720p)
+                if fmt.starts_with('f') && fmt.len() >= 2 {
+                    let rest = &fmt[1..];
+                    if rest.chars().all(|c| c.is_ascii_digit()) {
+                        return true;
+                    }
+                    if rest.starts_with("sb") && rest.len() > 2 && rest[2..].chars().all(|c| c.is_ascii_digit()) {
+                        return true;
+                    }
+                    if rest == "ba" || rest == "bv" {
+                        return true;
+                    }
+                    if rest.ends_with('p') && rest.len() > 1 && rest[..rest.len() - 1].chars().all(|c| c.is_ascii_digit()) {
+                        return true;
+                    }
                 }
+            }
+        }
+        false
+    }
+
+    fn get_fragment_format_id(file_name: &str) -> Option<String> {
+        if let Some(dot_idx) = file_name.rfind('.') {
+            let without_ext = &file_name[..dot_idx];
+            if let Some(second_dot_idx) = without_ext.rfind('.') {
+                let fmt = &without_ext[second_dot_idx + 1..];
+                return Some(fmt.to_lowercase());
+            }
+        }
+        None
+    }
+
+    fn is_audio_fragment(frag: &DiscoveredFile) -> bool {
+        let ext = frag.extension.to_lowercase();
+        if ext == "m4a" || ext == "opus" || ext == "mp3" || ext == "aac" || ext == "flac" || ext == "wav" || ext == "ogg" {
+            return true;
+        }
+        if let Some(fmt) = Self::get_fragment_format_id(&frag.name) {
+            // Known YouTube audio itags (139, 140, 249, 250, 251, 599, 600) or shorthand fba
+            if fmt == "f139" || fmt == "f140" || fmt == "f249" || fmt == "f250" || fmt == "f251" || fmt == "f599" || fmt == "f600" || fmt == "fba" {
+                return true;
+            }
+        }
+        false
+    }
+
+    fn is_video_fragment(frag: &DiscoveredFile) -> bool {
+        if Self::is_audio_fragment(frag) {
+            return false;
+        }
+        let ext = frag.extension.to_lowercase();
+        if ext == "mp4" || ext == "webm" || ext == "mkv" || ext == "avi" || ext == "mov" || ext == "flv" {
+            return true;
+        }
+        if let Some(fmt) = Self::get_fragment_format_id(&frag.name) {
+            if fmt == "fbv" || (fmt.starts_with('f') && fmt.ends_with('p')) {
+                return true;
             }
         }
         false
@@ -994,15 +1055,13 @@ impl DownloadManager {
         let mut audio_frag: Option<&DiscoveredFile> = None;
 
         for frag in &fragments {
-            let ext = frag.extension.to_lowercase();
-            if ext == "m4a" || ext == "opus" || ext == "mp3" || ext == "aac" {
-                if audio_frag.is_none() || frag.size > audio_frag.unwrap().size {
-                    audio_frag = Some(frag);
-                }
-            } else if ext == "mp4" || ext == "webm" || ext == "mkv" {
-                if video_frag.is_none() || frag.size > video_frag.unwrap().size {
-                    video_frag = Some(frag);
-                }
+            let is_audio = Self::is_audio_fragment(frag);
+            let is_video = Self::is_video_fragment(frag);
+
+            if is_audio && (audio_frag.is_none() || frag.size > audio_frag.unwrap().size) {
+                audio_frag = Some(frag);
+            } else if is_video && (video_frag.is_none() || frag.size > video_frag.unwrap().size) {
+                video_frag = Some(frag);
             }
         }
 
@@ -1026,6 +1085,7 @@ impl DownloadManager {
                 video.path, audio.path, out_path
             ));
 
+            // Attempt 1: Fast stream copy
             let mut cmd = Command::new(ffmpeg);
             #[cfg(windows)]
             cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
@@ -1040,20 +1100,54 @@ impl DownloadManager {
                 out_path.to_str()?,
             ]);
 
+            let mut success = false;
             if let Ok(status) = cmd.status().await {
-                if status.success() && out_path.exists() {
-                    if let Ok(meta) = fs::metadata(&out_path) {
-                        if meta.len() > 0 {
-                            let _ = fs::remove_file(&video.path);
-                            let _ = fs::remove_file(&audio.path);
-                            return Some(DiscoveredFile {
-                                path: out_path,
-                                name: out_file_name,
-                                size: meta.len(),
-                                extension: video_fmt.extension().to_string(),
-                            });
-                        }
+                if status.success() && out_path.exists() && fs::metadata(&out_path).map(|m| m.len() > 0).unwrap_or(false) {
+                    success = true;
+                }
+            }
+
+            // Attempt 2: If stream copy fails (e.g. incompatible Opus in MP4), transcode audio to AAC
+            if !success && *video_fmt == VideoFormat::Mp4 {
+                Logger::info(&format!(
+                    "Stream copy failed; falling back to AAC audio transcode for {:?}",
+                    out_path
+                ));
+                let mut fallback_cmd = Command::new(ffmpeg);
+                #[cfg(windows)]
+                fallback_cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+                fallback_cmd.args([
+                    "-y",
+                    "-i",
+                    video.path.to_str()?,
+                    "-i",
+                    audio.path.to_str()?,
+                    "-c:v",
+                    "copy",
+                    "-c:a",
+                    "aac",
+                    "-b:a",
+                    "192k",
+                    out_path.to_str()?,
+                ]);
+
+                if let Ok(status) = fallback_cmd.status().await {
+                    if status.success() && out_path.exists() && fs::metadata(&out_path).map(|m| m.len() > 0).unwrap_or(false) {
+                        success = true;
                     }
+                }
+            }
+
+            if success {
+                let _ = fs::remove_file(&video.path);
+                let _ = fs::remove_file(&audio.path);
+                if let Ok(meta) = fs::metadata(&out_path) {
+                    return Some(DiscoveredFile {
+                        path: out_path,
+                        name: out_file_name,
+                        size: meta.len(),
+                        extension: video_fmt.extension().to_string(),
+                    });
                 }
             }
         }

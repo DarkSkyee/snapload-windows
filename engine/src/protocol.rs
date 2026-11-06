@@ -52,10 +52,10 @@ impl VideoQuality {
     /// This ensures yt-dlp never downloads separate video-only / audio-only streams that cannot be merged.
     pub fn ytdl_format_selector_fallback(&self) -> &'static str {
         match self {
-            VideoQuality::Best => "best[ext=mp4][vcodec!=none][acodec!=none]/best[vcodec!=none][acodec!=none]/best",
-            VideoQuality::P1080 => "best[height<=1080][ext=mp4][vcodec!=none][acodec!=none]/best[height<=1080][vcodec!=none][acodec!=none]/best",
-            VideoQuality::P720 => "best[height<=720][ext=mp4][vcodec!=none][acodec!=none]/best[height<=720][vcodec!=none][acodec!=none]/best",
-            VideoQuality::P480 => "best[height<=480][ext=mp4][vcodec!=none][acodec!=none]/best[height<=480][vcodec!=none][acodec!=none]/best",
+            VideoQuality::Best => "best[ext=mp4][vcodec!=none][acodec!=none]/best[vcodec!=none][acodec!=none]/b[vcodec!=none][acodec!=none]",
+            VideoQuality::P1080 => "best[height<=1080][ext=mp4][vcodec!=none][acodec!=none]/best[height<=1080][vcodec!=none][acodec!=none]/b[height<=1080][vcodec!=none][acodec!=none]",
+            VideoQuality::P720 => "best[height<=720][ext=mp4][vcodec!=none][acodec!=none]/best[height<=720][vcodec!=none][acodec!=none]/b[height<=720][vcodec!=none][acodec!=none]",
+            VideoQuality::P480 => "best[height<=480][ext=mp4][vcodec!=none][acodec!=none]/best[height<=480][vcodec!=none][acodec!=none]/b[height<=480][vcodec!=none][acodec!=none]",
         }
     }
 }

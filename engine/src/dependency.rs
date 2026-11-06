@@ -284,26 +284,15 @@ impl DependencyManager {
 
         Logger::info("Attempting automated FFmpeg configuration...");
 
-        // 1. Check WinGet Links or PATH first
-        let winget_link = PathBuf::from(&local_app_data)
-            .join("Microsoft")
-            .join("WinGet")
-            .join("Links")
-            .join("ffmpeg.exe");
-        if winget_link.exists() {
-            if std::fs::copy(&winget_link, &dest_file).is_ok() {
-                Logger::info(&format!("Copied FFmpeg from WinGet Links to {:?}", dest_file));
-                return Some(dest_file);
+        // 1. Check existing FFmpeg across all locations (SnapLoad/bin, Exe dir, PATH, WinGet Links, WinGet Packages)
+        if let Some(existing) = Self::find_ffmpeg(&EngineConfig::default()) {
+            if existing != dest_file {
+                if std::fs::copy(&existing, &dest_file).is_ok() {
+                    Logger::info(&format!("Copied FFmpeg from {:?} to {:?}", existing, dest_file));
+                    return Some(dest_file);
+                }
             }
-            return Some(winget_link);
-        }
-
-        if let Ok(path) = which("ffmpeg.exe") {
-            if std::fs::copy(&path, &dest_file).is_ok() {
-                Logger::info(&format!("Copied FFmpeg from PATH to {:?}", dest_file));
-                return Some(dest_file);
-            }
-            return Some(path);
+            return Some(existing);
         }
 
         // 2. Try WinGet package install
@@ -323,12 +312,14 @@ impl DependencyManager {
         if let Ok(status) = timeout(Duration::from_secs(120), winget_cmd.status()).await {
             if let Ok(exit_code) = status {
                 if exit_code.success() {
-                    if winget_link.exists() {
-                        let _ = std::fs::copy(&winget_link, &dest_file);
-                        if dest_file.exists() {
-                            return Some(dest_file);
+                    if let Some(existing) = Self::find_ffmpeg(&EngineConfig::default()) {
+                        if existing != dest_file {
+                            let _ = std::fs::copy(&existing, &dest_file);
+                            if dest_file.exists() {
+                                return Some(dest_file);
+                            }
                         }
-                        return Some(winget_link);
+                        return Some(existing);
                     }
                 }
             }

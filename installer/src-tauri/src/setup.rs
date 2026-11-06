@@ -502,22 +502,10 @@ impl SetupManager {
         })
     }
 
-    pub fn install_ffmpeg_binary(bin_dir: &Path, logs: &mut Vec<String>) {
-        let ffmpeg_dest = bin_dir.join("ffmpeg.exe");
-        if ffmpeg_dest.exists() && ffmpeg_dest.metadata().map(|m| m.len() > 1_000_000).unwrap_or(false) {
-            logs.push(format!("FFmpeg core verified at: {:?}", ffmpeg_dest));
-            return;
-        }
-
+    pub fn find_existing_ffmpeg() -> Option<PathBuf> {
         // 1. Check existing PATH
         if let Some(path_src) = which("ffmpeg.exe") {
-            if std::fs::copy(&path_src, &ffmpeg_dest).is_ok() {
-                logs.push(format!("Copied existing FFmpeg from PATH: {:?}", path_src));
-                return;
-            } else {
-                logs.push(format!("FFmpeg detected on system PATH at: {:?}", path_src));
-                return;
-            }
+            return Some(path_src);
         }
 
         // 2. Check WinGet Links or Packages
@@ -527,9 +515,8 @@ impl SetupManager {
                 .join("WinGet")
                 .join("Links")
                 .join("ffmpeg.exe");
-            if winget_ffmpeg.exists() && std::fs::copy(&winget_ffmpeg, &ffmpeg_dest).is_ok() {
-                logs.push(format!("Copied FFmpeg from WinGet Links: {:?}", winget_ffmpeg));
-                return;
+            if winget_ffmpeg.exists() {
+                return Some(winget_ffmpeg);
             }
 
             let pkg_dir = PathBuf::from(&local_app_data)
@@ -540,12 +527,15 @@ impl SetupManager {
                 for entry in entries.flatten() {
                     let name = entry.file_name().to_string_lossy().to_string();
                     if name.contains("FFmpeg") || name.contains("ffmpeg") || name.contains("Gyan") {
+                        let candidate1 = entry.path().join("ffmpeg-9.0.1-essentials_build").join("bin").join("ffmpeg.exe");
+                        if candidate1.exists() {
+                            return Some(candidate1);
+                        }
                         if let Ok(sub_entries) = std::fs::read_dir(entry.path()) {
                             for sub in sub_entries.flatten() {
                                 let sub_bin = sub.path().join("bin").join("ffmpeg.exe");
-                                if sub_bin.exists() && std::fs::copy(&sub_bin, &ffmpeg_dest).is_ok() {
-                                    logs.push(format!("Copied FFmpeg from WinGet package: {:?}", sub_bin));
-                                    return;
+                                if sub_bin.exists() {
+                                    return Some(sub_bin);
                                 }
                             }
                         }
@@ -553,8 +543,27 @@ impl SetupManager {
                 }
             }
         }
+        None
+    }
 
-        // 3. Try WinGet package installation
+    pub fn install_ffmpeg_binary(bin_dir: &Path, logs: &mut Vec<String>) {
+        let ffmpeg_dest = bin_dir.join("ffmpeg.exe");
+        if ffmpeg_dest.exists() && ffmpeg_dest.metadata().map(|m| m.len() > 1_000_000).unwrap_or(false) {
+            logs.push(format!("FFmpeg core verified at: {:?}", ffmpeg_dest));
+            return;
+        }
+
+        if let Some(existing) = Self::find_existing_ffmpeg() {
+            if std::fs::copy(&existing, &ffmpeg_dest).is_ok() {
+                logs.push(format!("Copied existing FFmpeg to {:?}: {:?}", ffmpeg_dest, existing));
+                return;
+            } else {
+                logs.push(format!("FFmpeg detected at: {:?}", existing));
+                return;
+            }
+        }
+
+        // Try WinGet package installation
         logs.push("Attempting FFmpeg installation via WinGet...".to_string());
         let mut winget_cmd = std::process::Command::new("winget.exe");
         #[cfg(windows)]
@@ -571,13 +580,9 @@ impl SetupManager {
 
         if let Ok(status) = winget_cmd.status() {
             if status.success() {
-                if let Some(local_app_data) = std::env::var_os("LOCALAPPDATA") {
-                    let winget_ffmpeg = PathBuf::from(&local_app_data)
-                        .join("Microsoft")
-                        .join("WinGet")
-                        .join("Links")
-                        .join("ffmpeg.exe");
-                    if winget_ffmpeg.exists() && std::fs::copy(&winget_ffmpeg, &ffmpeg_dest).is_ok() {
+                if let Some(existing) = Self::find_existing_ffmpeg() {
+                    let _ = std::fs::copy(&existing, &ffmpeg_dest);
+                    if ffmpeg_dest.exists() {
                         logs.push("FFmpeg installed and verified via WinGet!".to_string());
                         return;
                     }
