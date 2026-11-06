@@ -50,7 +50,6 @@ impl RegistryManager {
         let mut path = PathBuf::from(local_app_data);
         path.push("SnapLoad");
         path.push("manifests");
-        let _ = create_dir_all(&path);
         path
     }
 
