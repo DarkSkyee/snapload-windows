@@ -108,6 +108,63 @@ impl SetupManager {
         path
     }
 
+    pub fn get_manifest_dir() -> PathBuf {
+        let mut path = Self::get_app_dir();
+        path.push("manifests");
+        path
+    }
+
+    pub fn ensure_directories_at(base_dir: &Path) -> Result<Vec<PathBuf>, std::io::Error> {
+        let bin = base_dir.join("bin");
+        let logs = base_dir.join("logs");
+        let ext = base_dir.join("extensions");
+        let chrom = ext.join("chromium");
+        let ff = ext.join("firefox");
+        let manifests = base_dir.join("manifests");
+
+        let dirs = vec![
+            base_dir.to_path_buf(),
+            bin,
+            logs,
+            ext,
+            chrom,
+            ff,
+            manifests,
+        ];
+
+        for d in &dirs {
+            create_dir_all(d)?;
+        }
+
+        Ok(dirs)
+    }
+
+    pub fn ensure_app_directories() -> Result<Vec<PathBuf>, std::io::Error> {
+        let app_dir = Self::get_app_dir();
+        let bin_dir = Self::get_bin_dir();
+        let logs_dir = Self::get_logs_dir();
+        let extensions_dir = Self::get_extensions_dir();
+        let chromium_dir = Self::get_chromium_ext_dir();
+        let firefox_dir = Self::get_firefox_ext_dir();
+        let manifest_dir = Self::get_manifest_dir();
+
+        let dirs = vec![
+            app_dir,
+            bin_dir,
+            logs_dir,
+            extensions_dir,
+            chromium_dir,
+            firefox_dir,
+            manifest_dir,
+        ];
+
+        for d in &dirs {
+            create_dir_all(d)?;
+        }
+
+        Ok(dirs)
+    }
+
     pub fn get_paths() -> ExtensionPaths {
         let app_dir = Self::get_app_dir().to_string_lossy().to_string();
         let chromium_dir = Self::get_chromium_ext_dir().to_string_lossy().to_string();
@@ -271,6 +328,10 @@ impl SetupManager {
         let cleaned_sc = Self::cleanup_desktop_shortcuts();
         logs.extend(cleaned_sc);
 
+        // Ensure all application target directories (bin, extensions, logs, manifest) exist before deploying any components
+        Self::ensure_app_directories()
+            .map_err(|e| format!("Failed to create application directories: {}", e))?;
+
         let bin_dir = Self::get_bin_dir();
         let _logs_dir = Self::get_logs_dir();
         logs.push(format!("Created application directories: {:?}", bin_dir));
@@ -313,10 +374,12 @@ impl SetupManager {
         }
 
         if let Some(src) = engine_source {
+            let _ = create_dir_all(&bin_dir);
             std::fs::copy(&src, &engine_dest)
                 .map_err(|e| format!("Failed to copy engine binary from {:?}: {}", src, e))?;
             logs.push(format!("Deployed SnapLoad Engine to: {:?}", engine_dest));
         } else if !EMBEDDED_ENGINE.is_empty() {
+            let _ = create_dir_all(&bin_dir);
             std::fs::write(&engine_dest, EMBEDDED_ENGINE)
                 .map_err(|e| format!("Failed to deploy embedded engine: {}", e))?;
             logs.push(format!(
@@ -335,6 +398,8 @@ impl SetupManager {
         // 2. Deploy Chromium extension (unpacked directory + zip archive)
         let chrome_unpacked_dir = Self::get_chromium_ext_dir();
         let chrome_zip_dest = Self::get_extensions_dir().join("snapload-extension-chromium.zip");
+        let _ = create_dir_all(Self::get_extensions_dir());
+        let _ = create_dir_all(&chrome_unpacked_dir);
 
         let mut chrome_extracted = false;
         if !EMBEDDED_CHROME_EXT.is_empty() {
@@ -374,6 +439,8 @@ impl SetupManager {
         let firefox_dir = Self::get_firefox_ext_dir();
         let firefox_xpi_dest = firefox_dir.join("snapload-extension-firefox.xpi");
         let firefox_zip_dest = Self::get_extensions_dir().join("snapload-extension-firefox.zip");
+        let _ = create_dir_all(Self::get_extensions_dir());
+        let _ = create_dir_all(&firefox_dir);
 
         if !EMBEDDED_FIREFOX_EXT.is_empty() {
             let _ = std::fs::write(&firefox_zip_dest, EMBEDDED_FIREFOX_EXT);
@@ -396,6 +463,7 @@ impl SetupManager {
 
         // 4. Generate and write Native Messaging host manifests
         logs.push("Generating Native Messaging host manifests...".to_string());
+        let _ = create_dir_all(Self::get_manifest_dir());
         let (chrome_manifest, firefox_manifest) = RegistryManager::write_manifests(&engine_dest)
             .map_err(|e| format!("Failed to write host manifests: {}", e))?;
         logs.push(format!("Chromium Host Manifest: {:?}", chrome_manifest));
@@ -435,6 +503,7 @@ impl SetupManager {
 
         // 6. Handle yt-dlp installation if requested
         if options.install_ytdlp {
+            let _ = create_dir_all(&bin_dir);
             let ytdlp_dest = bin_dir.join("yt-dlp.exe");
             if ytdlp_dest.exists() {
                 logs.push(format!("yt-dlp core verified at: {:?}", ytdlp_dest));
@@ -547,6 +616,7 @@ impl SetupManager {
     }
 
     pub fn install_ffmpeg_binary(bin_dir: &Path, logs: &mut Vec<String>) {
+        let _ = create_dir_all(bin_dir);
         let ffmpeg_dest = bin_dir.join("ffmpeg.exe");
         if ffmpeg_dest.exists() && ffmpeg_dest.metadata().map(|m| m.len() > 1_000_000).unwrap_or(false) {
             logs.push(format!("FFmpeg core verified at: {:?}", ffmpeg_dest));
@@ -1615,6 +1685,8 @@ foreach ($d in $dirs) {
 
     pub fn ensure_chromium_ext_deployed() -> Result<PathBuf, String> {
         let chrome_unpacked_dir = Self::get_chromium_ext_dir();
+        let _ = create_dir_all(Self::get_extensions_dir());
+        let _ = create_dir_all(&chrome_unpacked_dir);
         if chrome_unpacked_dir.join("manifest.json").exists() {
             return Ok(chrome_unpacked_dir);
         }
@@ -1671,6 +1743,7 @@ foreach ($d in $dirs) {
         for z in &workspace_zips {
             if z.exists() {
                 if let Ok(bytes) = std::fs::read(z) {
+                    let _ = create_dir_all(Self::get_extensions_dir());
                     let _ = std::fs::write(&chrome_zip_dest, &bytes);
                     if unpack_zip_bytes(&bytes, &chrome_unpacked_dir).is_ok()
                         && chrome_unpacked_dir.join("manifest.json").exists()
@@ -1690,6 +1763,8 @@ foreach ($d in $dirs) {
 
     pub fn ensure_firefox_ext_deployed() -> Result<PathBuf, String> {
         let firefox_dir = Self::get_firefox_ext_dir();
+        let _ = create_dir_all(Self::get_extensions_dir());
+        let _ = create_dir_all(&firefox_dir);
         let firefox_xpi_dest = firefox_dir.join("snapload-extension-firefox.xpi");
         if firefox_xpi_dest.exists() && firefox_xpi_dest.metadata().map(|m| m.len() > 100).unwrap_or(false) {
             return Ok(firefox_xpi_dest);
@@ -1746,6 +1821,9 @@ foreach ($d in $dirs) {
 
         let mut logs = Vec::new();
         logs.push(format!("Detected browser executable: {}", exe_path));
+
+        // Ensure all application target directories exist before auto install
+        let _ = Self::ensure_app_directories();
 
         // 1. Ensure engine is deployed
         let engine_dest = Self::ensure_engine_deployed()?;
@@ -2282,17 +2360,97 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dummy_nonexistent);
         assert!(!dummy_nonexistent.exists());
 
-        // Probe get_chromium_ext_dir and get_firefox_ext_dir logic
+        // Probe path getters logic
         let p_chrom = SetupManager::get_chromium_ext_dir();
         let p_ff = SetupManager::get_firefox_ext_dir();
         let p_bin = SetupManager::get_bin_dir();
         let p_logs = SetupManager::get_logs_dir();
+        let p_manifest = SetupManager::get_manifest_dir();
 
         // Verify that path getters return standard names without panicking
         assert!(p_chrom.ends_with("chromium"));
         assert!(p_ff.ends_with("firefox"));
         assert!(p_bin.ends_with("bin"));
         assert!(p_logs.ends_with("logs"));
+        assert!(p_manifest.ends_with("manifests"));
+    }
+
+    #[test]
+    fn test_ensure_directories_at_clean_machine_creates_all_subdirs_and_allows_writes() {
+        let temp_base = std::env::temp_dir().join("snapload_test_clean_machine_probe");
+        let _ = std::fs::remove_dir_all(&temp_base);
+        assert!(!temp_base.exists(), "Clean test directory must not exist prior to test");
+
+        let res = SetupManager::ensure_directories_at(&temp_base);
+        assert!(res.is_ok(), "ensure_directories_at must succeed: {:?}", res);
+        let created_dirs = res.unwrap();
+        assert_eq!(created_dirs.len(), 7, "Must ensure 7 target directories");
+
+        // Verify all target directories exist on disk
+        let bin = temp_base.join("bin");
+        let logs = temp_base.join("logs");
+        let ext = temp_base.join("extensions");
+        let chrom = ext.join("chromium");
+        let ff = ext.join("firefox");
+        let manifests = temp_base.join("manifests");
+
+        assert!(temp_base.exists(), "Base app directory must exist");
+        assert!(bin.exists(), "bin directory must exist");
+        assert!(logs.exists(), "logs directory must exist");
+        assert!(ext.exists(), "extensions directory must exist");
+        assert!(chrom.exists(), "chromium extension directory must exist");
+        assert!(ff.exists(), "firefox extension directory must exist");
+        assert!(manifests.exists(), "manifests directory must exist");
+
+        // Verify that writing files into these newly created directories succeeds (no OS error 3)
+        let engine_file = bin.join("snapload-engine.exe");
+        assert!(std::fs::write(&engine_file, b"dummy engine executable").is_ok(), "Writing to bin must succeed");
+
+        let chrom_zip = ext.join("snapload-extension-chromium.zip");
+        assert!(std::fs::write(&chrom_zip, b"dummy zip").is_ok(), "Writing to extensions must succeed");
+
+        let log_file = logs.join("installer.log");
+        assert!(std::fs::write(&log_file, b"dummy log").is_ok(), "Writing to logs must succeed");
+
+        let manifest_file = manifests.join("com.darkskyee.snapload.chromium.json");
+        assert!(std::fs::write(&manifest_file, b"{}").is_ok(), "Writing to manifests must succeed");
+
+        let _ = std::fs::remove_dir_all(&temp_base);
+    }
+
+    #[test]
+    fn test_ensure_directories_at_is_idempotent() {
+        let temp_base = std::env::temp_dir().join("snapload_test_idempotent_probe");
+        let _ = std::fs::remove_dir_all(&temp_base);
+
+        // First run: creates
+        let res1 = SetupManager::ensure_directories_at(&temp_base);
+        assert!(res1.is_ok());
+
+        // Write marker file
+        let marker = temp_base.join("bin").join("marker.txt");
+        std::fs::write(&marker, b"marker content").expect("Write marker");
+
+        // Second run: must not fail or delete existing files
+        let res2 = SetupManager::ensure_directories_at(&temp_base);
+        assert!(res2.is_ok());
+        assert!(marker.exists(), "Existing files must remain preserved across repeated ensure calls");
+
+        let _ = std::fs::remove_dir_all(&temp_base);
+    }
+
+    #[test]
+    fn test_ensure_app_directories_succeeds_and_creates_all_target_dirs() {
+        let res = SetupManager::ensure_app_directories();
+        assert!(res.is_ok(), "ensure_app_directories must succeed: {:?}", res);
+
+        assert!(SetupManager::get_app_dir().exists(), "app dir must exist");
+        assert!(SetupManager::get_bin_dir().exists(), "bin dir must exist");
+        assert!(SetupManager::get_logs_dir().exists(), "logs dir must exist");
+        assert!(SetupManager::get_extensions_dir().exists(), "extensions dir must exist");
+        assert!(SetupManager::get_chromium_ext_dir().exists(), "chromium ext dir must exist");
+        assert!(SetupManager::get_firefox_ext_dir().exists(), "firefox ext dir must exist");
+        assert!(SetupManager::get_manifest_dir().exists(), "manifests dir must exist");
     }
 
     #[test]

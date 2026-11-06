@@ -56,6 +56,7 @@ impl RegistryManager {
 
     pub fn write_manifests(engine_exe_path: &Path) -> Result<(PathBuf, PathBuf), std::io::Error> {
         let dir = Self::get_manifest_dir();
+        create_dir_all(&dir)?;
         let engine_path_escaped = engine_exe_path.to_string_lossy().to_string();
 
         let local_app_data = std::env::var_os("LOCALAPPDATA")
