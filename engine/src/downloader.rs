@@ -305,7 +305,14 @@ impl DownloadManager {
             }
         };
 
-        let ffmpeg_path = DependencyManager::find_ffmpeg(&config);
+        let mut ffmpeg_path = DependencyManager::find_ffmpeg(&config);
+        if ffmpeg_path.is_none() {
+            Logger::warn(&format!(
+                "FFmpeg not found locally for download {}. Attempting automated download...",
+                download_id
+            ));
+            ffmpeg_path = DependencyManager::auto_download_ffmpeg().await;
+        }
 
         let manager = self.clone();
         tokio::spawn(async move {
@@ -377,17 +384,26 @@ impl DownloadManager {
         }
 
         if media_type == MediaType::Video {
-            args.push("-f".to_string());
-            args.push(video_qual.ytdl_format_selector().to_string());
-            if video_fmt == VideoFormat::Mp4 {
-                // Prioritize AAC audio in MP4 container so downloaded video always plays audio in Windows Media Player
-                args.push("-S".to_string());
-                args.push("ext:mp4:m4a,res".to_string());
+            if ffmpeg_path.is_none() {
+                Logger::warn(&format!(
+                    "FFmpeg is unavailable for download {}. Using pre-merged fallback format selector to ensure complete audio/video stream.",
+                    download_id
+                ));
+                args.push("-f".to_string());
+                args.push(video_qual.ytdl_format_selector_fallback().to_string());
+            } else {
+                args.push("-f".to_string());
+                args.push(video_qual.ytdl_format_selector().to_string());
+                if video_fmt == VideoFormat::Mp4 {
+                    // Prioritize AAC audio in MP4 container so downloaded video always plays audio in Windows Media Player
+                    args.push("-S".to_string());
+                    args.push("ext:mp4:m4a,res".to_string());
+                }
+                args.push("--merge-output-format".to_string());
+                args.push(video_fmt.extension().to_string());
+                args.push("--remux-video".to_string());
+                args.push(video_fmt.extension().to_string());
             }
-            args.push("--merge-output-format".to_string());
-            args.push(video_fmt.extension().to_string());
-            args.push("--remux-video".to_string());
-            args.push(video_fmt.extension().to_string());
         } else {
             args.push("-x".to_string());
             args.push("--audio-format".to_string());
@@ -541,6 +557,23 @@ impl DownloadManager {
                     "Download {} completed with exit status success",
                     download_id
                 ));
+
+                // If yt-dlp left unmerged separate stream fragments (e.g. .f137.mp4 and .f140.m4a),
+                // attempt automatic remuxing if FFmpeg is available
+                if let Some(merged) = Self::try_merge_unmerged_fragments(
+                    &output_dir,
+                    &unique_prefix,
+                    &video_fmt,
+                    ffmpeg_path.as_deref(),
+                )
+                .await
+                {
+                    Logger::info(&format!(
+                        "Successfully merged stream fragments for download {} into {:?}",
+                        download_id, merged.path
+                    ));
+                }
+
                 // Locate the finished file
                 if let Some(mut file_info) = Self::find_output_file(&output_dir, &unique_prefix) {
                     let prefix_with_underscore = format!("{}_", unique_prefix);
@@ -576,12 +609,21 @@ impl DownloadManager {
                         ))
                         .await;
                 } else {
-                    let _ = response_tx
-                        .send(EngineResponse::err(
-                            &download_id,
+                    let unmerged = Self::find_unmerged_fragments(&output_dir, &unique_prefix);
+                    let (err_code, err_msg) = if !unmerged.is_empty() {
+                        (
+                            "MERGE_FAILED",
+                            "yt-dlp downloaded separate video/audio streams, but FFmpeg is required to merge them into a single playable file. Please ensure FFmpeg is installed.",
+                        )
+                    } else {
+                        (
                             "FILE_NOT_FOUND",
                             "yt-dlp finished but the output file could not be verified on disk.",
-                        ))
+                        )
+                    };
+
+                    let _ = response_tx
+                        .send(EngineResponse::err(&download_id, err_code, err_msg))
                         .await;
                 }
             }
@@ -889,7 +931,137 @@ impl DownloadManager {
         None
     }
 
-    fn find_output_file(dir: &Path, prefix: &str) -> Option<DiscoveredFile> {
+    pub fn is_unmerged_fragment(file_name: &str) -> bool {
+        if let Some(dot_idx) = file_name.rfind('.') {
+            let without_ext = &file_name[..dot_idx];
+            if let Some(second_dot_idx) = without_ext.rfind('.') {
+                let fmt = &without_ext[second_dot_idx + 1..];
+                if fmt.starts_with('f')
+                    && fmt.len() >= 2
+                    && fmt[1..].chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+                {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    pub fn find_unmerged_fragments(dir: &Path, prefix: &str) -> Vec<DiscoveredFile> {
+        let mut fragments = Vec::new();
+        if let Ok(entries) = fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_file() {
+                    if let Some(file_name) = path.file_name().and_then(|s| s.to_str()) {
+                        if file_name.starts_with(prefix) && Self::is_unmerged_fragment(file_name) {
+                            let ext = path
+                                .extension()
+                                .and_then(|s| s.to_str())
+                                .unwrap_or("")
+                                .to_lowercase();
+                            if let Ok(meta) = entry.metadata() {
+                                if meta.len() > 0 {
+                                    fragments.push(DiscoveredFile {
+                                        path: path.clone(),
+                                        name: file_name.to_string(),
+                                        size: meta.len(),
+                                        extension: ext,
+                                    });
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        fragments
+    }
+
+    pub async fn try_merge_unmerged_fragments(
+        dir: &Path,
+        prefix: &str,
+        video_fmt: &VideoFormat,
+        ffmpeg_exe: Option<&Path>,
+    ) -> Option<DiscoveredFile> {
+        let ffmpeg = ffmpeg_exe?;
+        let fragments = Self::find_unmerged_fragments(dir, prefix);
+        if fragments.len() < 2 {
+            return None;
+        }
+
+        let mut video_frag: Option<&DiscoveredFile> = None;
+        let mut audio_frag: Option<&DiscoveredFile> = None;
+
+        for frag in &fragments {
+            let ext = frag.extension.to_lowercase();
+            if ext == "m4a" || ext == "opus" || ext == "mp3" || ext == "aac" {
+                if audio_frag.is_none() || frag.size > audio_frag.unwrap().size {
+                    audio_frag = Some(frag);
+                }
+            } else if ext == "mp4" || ext == "webm" || ext == "mkv" {
+                if video_frag.is_none() || frag.size > video_frag.unwrap().size {
+                    video_frag = Some(frag);
+                }
+            }
+        }
+
+        if let (Some(video), Some(audio)) = (video_frag, audio_frag) {
+            let base_name = if let Some(dot_idx) = video.name.rfind('.') {
+                let without_ext = &video.name[..dot_idx];
+                if let Some(fmt_dot_idx) = without_ext.rfind('.') {
+                    without_ext[..fmt_dot_idx].to_string()
+                } else {
+                    without_ext.to_string()
+                }
+            } else {
+                format!("{}_merged", prefix)
+            };
+
+            let out_file_name = format!("{}.{}", base_name, video_fmt.extension());
+            let out_path = dir.join(&out_file_name);
+
+            Logger::info(&format!(
+                "Auto-merging unmerged fragments {:?} and {:?} to {:?}",
+                video.path, audio.path, out_path
+            ));
+
+            let mut cmd = Command::new(ffmpeg);
+            #[cfg(windows)]
+            cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+            cmd.args([
+                "-y",
+                "-i",
+                video.path.to_str()?,
+                "-i",
+                audio.path.to_str()?,
+                "-c",
+                "copy",
+                out_path.to_str()?,
+            ]);
+
+            if let Ok(status) = cmd.status().await {
+                if status.success() && out_path.exists() {
+                    if let Ok(meta) = fs::metadata(&out_path) {
+                        if meta.len() > 0 {
+                            let _ = fs::remove_file(&video.path);
+                            let _ = fs::remove_file(&audio.path);
+                            return Some(DiscoveredFile {
+                                path: out_path,
+                                name: out_file_name,
+                                size: meta.len(),
+                                extension: video_fmt.extension().to_string(),
+                            });
+                        }
+                    }
+                }
+            }
+        }
+
+        None
+    }
+
+    pub fn find_output_file(dir: &Path, prefix: &str) -> Option<DiscoveredFile> {
         let entries = fs::read_dir(dir).ok()?;
         let mut candidates = Vec::new();
 
@@ -904,14 +1076,17 @@ impl DownloadManager {
                             .unwrap_or("")
                             .to_lowercase();
                         if ext != "part" && ext != "ytdl" && ext != "temp" && ext != "aria2" {
-                            if let Ok(meta) = entry.metadata() {
-                                if meta.len() > 0 {
-                                    candidates.push(DiscoveredFile {
-                                        path: path.clone(),
-                                        name: file_name.to_string(),
-                                        size: meta.len(),
-                                        extension: ext,
-                                    });
+                            // Reject unmerged raw format fragments (e.g. .f137.mp4)
+                            if !Self::is_unmerged_fragment(file_name) {
+                                if let Ok(meta) = entry.metadata() {
+                                    if meta.len() > 0 {
+                                        candidates.push(DiscoveredFile {
+                                            path: path.clone(),
+                                            name: file_name.to_string(),
+                                            size: meta.len(),
+                                            extension: ext,
+                                        });
+                                    }
                                 }
                             }
                         }
@@ -937,9 +1112,10 @@ impl DownloadManager {
     }
 }
 
-struct DiscoveredFile {
-    path: PathBuf,
-    name: String,
-    size: u64,
-    extension: String,
+#[derive(Debug, Clone)]
+pub struct DiscoveredFile {
+    pub path: PathBuf,
+    pub name: String,
+    pub size: u64,
+    pub extension: String,
 }

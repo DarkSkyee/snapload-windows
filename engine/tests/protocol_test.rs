@@ -347,3 +347,60 @@ fn test_video_format_selector_prefers_m4a_audio() {
     assert!(VideoQuality::P480.ytdl_format_selector().contains("bestaudio[ext=m4a]"));
 }
 
+#[test]
+fn test_video_format_selector_fallback_requires_audio_and_video() {
+    assert!(VideoQuality::Best.ytdl_format_selector_fallback().contains("acodec!=none"));
+    assert!(VideoQuality::Best.ytdl_format_selector_fallback().contains("vcodec!=none"));
+    assert!(VideoQuality::P1080.ytdl_format_selector_fallback().contains("acodec!=none"));
+    assert!(VideoQuality::P720.ytdl_format_selector_fallback().contains("acodec!=none"));
+    assert!(VideoQuality::P480.ytdl_format_selector_fallback().contains("acodec!=none"));
+}
+
+#[test]
+fn test_is_unmerged_fragment_detection() {
+    // Exact user failure case: .f137.mp4 and .f140.m4a
+    assert!(DownloadManager::is_unmerged_fragment("Phil_NO_SMP_earth_dream_smp_animatic.f137.mp4"));
+    assert!(DownloadManager::is_unmerged_fragment("snapload_dl_06vodluf_Phil_NO_SMP_earth_dream_smp_animatic.f140.m4a"));
+    assert!(DownloadManager::is_unmerged_fragment("video.f248.webm"));
+    assert!(DownloadManager::is_unmerged_fragment("sample.fba.m4a"));
+
+    // Valid completed files should NOT be detected as fragments
+    assert!(!DownloadManager::is_unmerged_fragment("Phil_NO_SMP_earth_dream_smp_animatic.mp4"));
+    assert!(!DownloadManager::is_unmerged_fragment("snapload_dl_06vodluf_title.m4a"));
+    assert!(!DownloadManager::is_unmerged_fragment("video.720p.mp4"));
+    assert!(!DownloadManager::is_unmerged_fragment("video.mp4"));
+}
+
+#[test]
+fn test_find_output_file_rejects_unmerged_stream_fragments() {
+    use std::fs;
+    let temp_dir = std::env::temp_dir().join(format!("snapload_test_unmerged_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+    fs::create_dir_all(&temp_dir).unwrap();
+
+    let prefix = "snapload_test_prefix";
+    let video_frag = temp_dir.join(format!("{}_video.f137.mp4", prefix));
+    let audio_frag = temp_dir.join(format!("{}_audio.f140.m4a", prefix));
+
+    fs::write(&video_frag, b"fake video stream data").unwrap();
+    fs::write(&audio_frag, b"fake audio stream data").unwrap();
+
+    // Verify find_output_file rejects unmerged fragments and does not pick .f137.mp4
+    let discovered = DownloadManager::find_output_file(&temp_dir, prefix);
+    assert!(discovered.is_none(), "find_output_file must reject unmerged fragments (.f137.mp4)");
+
+    // Verify find_unmerged_fragments correctly detects both fragments
+    let frags = DownloadManager::find_unmerged_fragments(&temp_dir, prefix);
+    assert_eq!(frags.len(), 2);
+
+    // Now write a valid merged file
+    let merged_file = temp_dir.join(format!("{}_video.mp4", prefix));
+    fs::write(&merged_file, b"fake merged video with audio").unwrap();
+
+    let discovered_merged = DownloadManager::find_output_file(&temp_dir, prefix);
+    assert!(discovered_merged.is_some());
+    assert_eq!(discovered_merged.unwrap().name, format!("{}_video.mp4", prefix));
+
+    let _ = fs::remove_dir_all(&temp_dir);
+}
+
+

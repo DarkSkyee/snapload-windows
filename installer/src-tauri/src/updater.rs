@@ -207,6 +207,23 @@ impl UpdateChecker {
                     "FFmpeg media converter detected on system PATH".to_string(),
                     "On PATH".to_string(),
                 )
+            } else if let Some(local_app_data) = std::env::var_os("LOCALAPPDATA") {
+                let winget_link = std::path::PathBuf::from(&local_app_data)
+                    .join("Microsoft")
+                    .join("WinGet")
+                    .join("Links")
+                    .join("ffmpeg.exe");
+                if winget_link.exists() {
+                    (
+                        "FFmpeg media converter detected via WinGet".to_string(),
+                        "Installed".to_string(),
+                    )
+                } else {
+                    (
+                        "FFmpeg media converter not installed (optional)".to_string(),
+                        "Optional".to_string(),
+                    )
+                }
             } else {
                 (
                     "FFmpeg media converter not installed (optional)".to_string(),

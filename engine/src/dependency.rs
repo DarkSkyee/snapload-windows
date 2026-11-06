@@ -111,13 +111,38 @@ impl DependencyManager {
 
         // 5. WinGet standard path
         if let Some(local_app_data) = std::env::var_os("LOCALAPPDATA") {
-            let mut p = PathBuf::from(local_app_data);
+            let mut p = PathBuf::from(&local_app_data);
             p.push("Microsoft");
             p.push("WinGet");
             p.push("Links");
             p.push("ffmpeg.exe");
             if p.exists() {
                 return Some(p);
+            }
+
+            // 6. WinGet packages directory
+            let pkg_dir = PathBuf::from(&local_app_data)
+                .join("Microsoft")
+                .join("WinGet")
+                .join("Packages");
+            if let Ok(entries) = std::fs::read_dir(&pkg_dir) {
+                for entry in entries.flatten() {
+                    let name = entry.file_name().to_string_lossy().to_string();
+                    if name.contains("FFmpeg") || name.contains("ffmpeg") || name.contains("Gyan") {
+                        let candidate1 = entry.path().join("ffmpeg-9.0.1-essentials_build").join("bin").join("ffmpeg.exe");
+                        if candidate1.exists() {
+                            return Some(candidate1);
+                        }
+                        if let Ok(sub_entries) = std::fs::read_dir(entry.path()) {
+                            for sub in sub_entries.flatten() {
+                                let sub_bin = sub.path().join("bin").join("ffmpeg.exe");
+                                if sub_bin.exists() {
+                                    return Some(sub_bin);
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
 
@@ -242,6 +267,112 @@ impl DependencyManager {
                 return Some(dest_file);
             }
         }
+        None
+    }
+
+    pub async fn auto_download_ffmpeg() -> Option<PathBuf> {
+        let local_app_data = std::env::var_os("LOCALAPPDATA")?;
+        let mut dest_dir = PathBuf::from(&local_app_data);
+        dest_dir.push("SnapLoad");
+        dest_dir.push("bin");
+        let _ = std::fs::create_dir_all(&dest_dir);
+        let dest_file = dest_dir.join("ffmpeg.exe");
+
+        if dest_file.exists() && dest_file.metadata().map(|m| m.len() > 1_000_000).unwrap_or(false) {
+            return Some(dest_file);
+        }
+
+        Logger::info("Attempting automated FFmpeg configuration...");
+
+        // 1. Check WinGet Links or PATH first
+        let winget_link = PathBuf::from(&local_app_data)
+            .join("Microsoft")
+            .join("WinGet")
+            .join("Links")
+            .join("ffmpeg.exe");
+        if winget_link.exists() {
+            if std::fs::copy(&winget_link, &dest_file).is_ok() {
+                Logger::info(&format!("Copied FFmpeg from WinGet Links to {:?}", dest_file));
+                return Some(dest_file);
+            }
+            return Some(winget_link);
+        }
+
+        if let Ok(path) = which("ffmpeg.exe") {
+            if std::fs::copy(&path, &dest_file).is_ok() {
+                Logger::info(&format!("Copied FFmpeg from PATH to {:?}", dest_file));
+                return Some(dest_file);
+            }
+            return Some(path);
+        }
+
+        // 2. Try WinGet package install
+        let mut winget_cmd = Command::new("winget.exe");
+        #[cfg(windows)]
+        winget_cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+        winget_cmd.args([
+            "install",
+            "--id",
+            "Gyan.FFmpeg.Essentials",
+            "-e",
+            "--accept-source-agreements",
+            "--accept-package-agreements",
+            "--silent",
+        ]);
+
+        if let Ok(status) = timeout(Duration::from_secs(120), winget_cmd.status()).await {
+            if let Ok(exit_code) = status {
+                if exit_code.success() {
+                    if winget_link.exists() {
+                        let _ = std::fs::copy(&winget_link, &dest_file);
+                        if dest_file.exists() {
+                            return Some(dest_file);
+                        }
+                        return Some(winget_link);
+                    }
+                }
+            }
+        }
+
+        // 3. Fallback: Download official essentials build archive and extract ffmpeg.exe
+        let temp_zip = dest_dir.join("ffmpeg_temp.zip");
+        let mut curl_cmd = Command::new("curl.exe");
+        #[cfg(windows)]
+        curl_cmd.creation_flags(0x08000000);
+        curl_cmd.args([
+            "-s",
+            "-L",
+            "-f",
+            "-o",
+            temp_zip.to_str().unwrap_or_default(),
+            "https://github.com/GyanD/codexffmpeg/releases/download/9.0.1/ffmpeg-9.0.1-essentials_build.zip",
+        ]);
+
+        if let Ok(Ok(status)) = timeout(Duration::from_secs(180), curl_cmd.status()).await {
+            if status.success() && temp_zip.exists() {
+                let mut tar_cmd = Command::new("tar.exe");
+                #[cfg(windows)]
+                tar_cmd.creation_flags(0x08000000);
+                tar_cmd.args([
+                    "-xf",
+                    temp_zip.to_str().unwrap_or_default(),
+                    "-C",
+                    dest_dir.to_str().unwrap_or_default(),
+                    "--strip-components",
+                    "2",
+                    "*ffmpeg.exe",
+                ]);
+                let _ = tar_cmd.status().await;
+                let _ = std::fs::remove_file(&temp_zip);
+
+                if dest_file.exists() && dest_file.metadata().map(|m| m.len() > 1_000_000).unwrap_or(false) {
+                    Logger::info(&format!("Auto-downloaded and extracted FFmpeg to {:?}", dest_file));
+                    return Some(dest_file);
+                }
+            }
+        }
+        let _ = std::fs::remove_file(&temp_zip);
+
         None
     }
 }

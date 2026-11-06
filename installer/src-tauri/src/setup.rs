@@ -480,18 +480,7 @@ impl SetupManager {
 
         // 7. Handle FFmpeg installation if requested
         if options.install_ffmpeg {
-            let ffmpeg_dest = bin_dir.join("ffmpeg.exe");
-            if ffmpeg_dest.exists() {
-                logs.push(format!("FFmpeg core verified at: {:?}", ffmpeg_dest));
-            } else if let Some(path_src) = which("ffmpeg.exe") {
-                if std::fs::copy(&path_src, &ffmpeg_dest).is_ok() {
-                    logs.push(format!("Copied existing FFmpeg from PATH: {:?}", path_src));
-                } else {
-                    logs.push(format!("FFmpeg detected on system PATH at: {:?}", path_src));
-                }
-            } else {
-                logs.push("FFmpeg converter configured. Place ffmpeg.exe in SnapLoad\\bin or system PATH for audio remuxing.".to_string());
-            }
+            Self::install_ffmpeg_binary(&bin_dir, &mut logs);
         }
 
         // 8. Initialize default download directory in User Downloads
@@ -511,6 +500,131 @@ impl SetupManager {
             success: true,
             logs,
         })
+    }
+
+    pub fn install_ffmpeg_binary(bin_dir: &Path, logs: &mut Vec<String>) {
+        let ffmpeg_dest = bin_dir.join("ffmpeg.exe");
+        if ffmpeg_dest.exists() && ffmpeg_dest.metadata().map(|m| m.len() > 1_000_000).unwrap_or(false) {
+            logs.push(format!("FFmpeg core verified at: {:?}", ffmpeg_dest));
+            return;
+        }
+
+        // 1. Check existing PATH
+        if let Some(path_src) = which("ffmpeg.exe") {
+            if std::fs::copy(&path_src, &ffmpeg_dest).is_ok() {
+                logs.push(format!("Copied existing FFmpeg from PATH: {:?}", path_src));
+                return;
+            } else {
+                logs.push(format!("FFmpeg detected on system PATH at: {:?}", path_src));
+                return;
+            }
+        }
+
+        // 2. Check WinGet Links or Packages
+        if let Some(local_app_data) = std::env::var_os("LOCALAPPDATA") {
+            let winget_ffmpeg = PathBuf::from(&local_app_data)
+                .join("Microsoft")
+                .join("WinGet")
+                .join("Links")
+                .join("ffmpeg.exe");
+            if winget_ffmpeg.exists() && std::fs::copy(&winget_ffmpeg, &ffmpeg_dest).is_ok() {
+                logs.push(format!("Copied FFmpeg from WinGet Links: {:?}", winget_ffmpeg));
+                return;
+            }
+
+            let pkg_dir = PathBuf::from(&local_app_data)
+                .join("Microsoft")
+                .join("WinGet")
+                .join("Packages");
+            if let Ok(entries) = std::fs::read_dir(&pkg_dir) {
+                for entry in entries.flatten() {
+                    let name = entry.file_name().to_string_lossy().to_string();
+                    if name.contains("FFmpeg") || name.contains("ffmpeg") || name.contains("Gyan") {
+                        if let Ok(sub_entries) = std::fs::read_dir(entry.path()) {
+                            for sub in sub_entries.flatten() {
+                                let sub_bin = sub.path().join("bin").join("ffmpeg.exe");
+                                if sub_bin.exists() && std::fs::copy(&sub_bin, &ffmpeg_dest).is_ok() {
+                                    logs.push(format!("Copied FFmpeg from WinGet package: {:?}", sub_bin));
+                                    return;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // 3. Try WinGet package installation
+        logs.push("Attempting FFmpeg installation via WinGet...".to_string());
+        let mut winget_cmd = std::process::Command::new("winget.exe");
+        #[cfg(windows)]
+        winget_cmd.creation_flags(CREATE_NO_WINDOW);
+        winget_cmd.args([
+            "install",
+            "--id",
+            "Gyan.FFmpeg.Essentials",
+            "-e",
+            "--accept-source-agreements",
+            "--accept-package-agreements",
+            "--silent",
+        ]);
+
+        if let Ok(status) = winget_cmd.status() {
+            if status.success() {
+                if let Some(local_app_data) = std::env::var_os("LOCALAPPDATA") {
+                    let winget_ffmpeg = PathBuf::from(&local_app_data)
+                        .join("Microsoft")
+                        .join("WinGet")
+                        .join("Links")
+                        .join("ffmpeg.exe");
+                    if winget_ffmpeg.exists() && std::fs::copy(&winget_ffmpeg, &ffmpeg_dest).is_ok() {
+                        logs.push("FFmpeg installed and verified via WinGet!".to_string());
+                        return;
+                    }
+                }
+            }
+        }
+
+        // 4. Direct download fallback
+        logs.push("Downloading official FFmpeg release archive...".to_string());
+        let temp_zip = bin_dir.join("ffmpeg_temp.zip");
+        let mut curl_cmd = std::process::Command::new("curl.exe");
+        #[cfg(windows)]
+        curl_cmd.creation_flags(CREATE_NO_WINDOW);
+        curl_cmd.args([
+            "-s",
+            "-L",
+            "-f",
+            "-o",
+            temp_zip.to_str().unwrap_or_default(),
+            "https://github.com/GyanD/codexffmpeg/releases/download/9.0.1/ffmpeg-9.0.1-essentials_build.zip",
+        ]);
+
+        if let Ok(status) = curl_cmd.status() {
+            if status.success() && temp_zip.exists() {
+                let mut tar_cmd = std::process::Command::new("tar.exe");
+                #[cfg(windows)]
+                tar_cmd.creation_flags(CREATE_NO_WINDOW);
+                tar_cmd.args([
+                    "-xf",
+                    temp_zip.to_str().unwrap_or_default(),
+                    "-C",
+                    bin_dir.to_str().unwrap_or_default(),
+                    "--strip-components",
+                    "2",
+                    "*ffmpeg.exe",
+                ]);
+                let _ = tar_cmd.status();
+                let _ = std::fs::remove_file(&temp_zip);
+
+                if ffmpeg_dest.exists() && ffmpeg_dest.metadata().map(|m| m.len() > 1_000_000).unwrap_or(false) {
+                    logs.push("FFmpeg downloaded and installed successfully!".to_string());
+                    return;
+                }
+            }
+        }
+        let _ = std::fs::remove_file(&temp_zip);
+        logs.push("Notice: FFmpeg automated setup did not complete. SnapLoad will automatically fallback to single-stream formats or configure FFmpeg on first run.".to_string());
     }
 
     pub async fn verify_installation() -> DiagnosticResult {
@@ -1662,14 +1776,7 @@ foreach ($d in $dirs) {
             }
         }
 
-        let ffmpeg_dest = bin_dir.join("ffmpeg.exe");
-        if ffmpeg_dest.exists() {
-            logs.push(format!("FFmpeg core verified at: {:?}", ffmpeg_dest));
-        } else if let Some(path_src) = which("ffmpeg.exe") {
-            if std::fs::copy(&path_src, &ffmpeg_dest).is_ok() {
-                logs.push(format!("Copied FFmpeg from PATH: {:?}", path_src));
-            }
-        }
+        Self::install_ffmpeg_binary(&bin_dir, &mut logs);
 
         // Initialize User Downloads directory
         if let Some(user_profile) = std::env::var_os("USERPROFILE") {
