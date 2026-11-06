@@ -216,6 +216,44 @@ function injectPlayerBarButton() {
 }
 
 /**
+ * Fetches tracks from Spotify embed page as a fallback when DOM rows are not yet rendered.
+ */
+async function fetchEmbedTrackUrls(url: string): Promise<string[]> {
+  try {
+    const clean = url.replace(/\/intl-[a-zA-Z0-9_-]+/, "");
+    const match = clean.match(/open\.spotify\.com\/(playlist|album)\/([a-zA-Z0-9]+)/);
+    if (!match) return [];
+    const embedUrl = `https://open.spotify.com/embed/${match[1]}/${match[2]}`;
+    const res = await fetch(embedUrl);
+    if (!res.ok) return [];
+    const html = await res.text();
+    const startTag = html.indexOf('id="__NEXT_DATA__"');
+    if (startTag === -1) return [];
+    const contentStart = html.indexOf('>', startTag);
+    if (contentStart === -1) return [];
+    const endTag = html.indexOf('</script>', contentStart);
+    if (endTag === -1) return [];
+    const jsonStr = html.substring(contentStart + 1, endTag).trim();
+    const data = JSON.parse(jsonStr);
+    const entity = data?.props?.pageProps?.state?.data?.entity;
+    const trackList = entity?.trackList;
+    if (Array.isArray(trackList)) {
+      const urls: string[] = [];
+      for (const t of trackList) {
+        const id = t.id || (t.uri && t.uri.startsWith("spotify:track:") ? t.uri.replace("spotify:track:", "") : null);
+        if (id) {
+          urls.push(`https://open.spotify.com/track/${id}`);
+        }
+      }
+      return urls;
+    }
+  } catch (e) {
+    console.warn("[SnapLoad Spotify] Embed fallback failed:", e);
+  }
+  return [];
+}
+
+/**
  * Injects SnapLoad button into Playlist / Album / Track action bar row.
  */
 function injectActionBarButton() {
@@ -225,9 +263,10 @@ function injectActionBarButton() {
 
     if (document.getElementById(SPOTIFY_ACTION_BTN_ID)) return;
 
-    const isPlaylist = window.location.pathname.startsWith("/playlist");
-    const isAlbum = window.location.pathname.startsWith("/album");
-    const isTrack = window.location.pathname.startsWith("/track");
+    const cleanPath = window.location.pathname.replace(/^\/intl-[a-zA-Z0-9_-]+/, "");
+    const isPlaylist = cleanPath.startsWith("/playlist");
+    const isAlbum = cleanPath.startsWith("/album");
+    const isTrack = cleanPath.startsWith("/track");
 
     if (!isPlaylist && !isAlbum && !isTrack) return;
 
@@ -243,7 +282,7 @@ function injectActionBarButton() {
       <span class="snapload-sp-label">${label}</span>
     `;
 
-    btn.addEventListener("click", (e) => {
+    btn.addEventListener("click", async (e) => {
       e.preventDefault();
       e.stopPropagation();
 
@@ -261,6 +300,17 @@ function injectActionBarButton() {
             trackUrls.push(a.href);
           }
         });
+
+        // Embed fallback if DOM rows are empty/unpopulated
+        if (trackUrls.length === 0) {
+          if (labelSpan) labelSpan.textContent = "Fetching playlist tracks...";
+          const embedUrls = await fetchEmbedTrackUrls(window.location.href);
+          for (const u of embedUrls) {
+            if (!trackUrls.includes(u)) {
+              trackUrls.push(u);
+            }
+          }
+        }
 
         if (trackUrls.length > 0) {
           if (labelSpan) labelSpan.textContent = `Queuing ${trackUrls.length} tracks...`;

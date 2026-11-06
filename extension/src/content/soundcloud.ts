@@ -224,6 +224,40 @@ function injectSoundCloudActionButton() {
 
       btn.classList.add("downloading");
       const labelSpan = btn.querySelector(".snapload-sc-label");
+
+      if (window.location.pathname.includes("/sets/")) {
+        const trackLinks = document.querySelectorAll<HTMLAnchorElement>(
+          ".trackList__item .trackItem__trackTitle, .trackItem a.trackItem__trackTitle"
+        );
+        const urls: string[] = [];
+        trackLinks.forEach((a) => {
+          if (a.href && !urls.includes(a.href)) {
+            urls.push(a.href);
+          }
+        });
+
+        if (urls.length > 0) {
+          if (labelSpan) labelSpan.textContent = `Queuing ${urls.length}...`;
+          let count = 0;
+          urls.forEach((u) => {
+            api.runtime.sendMessage(
+              { type: "START_DOWNLOAD", payload: { url: u, media_type: "audio" } },
+              () => {
+                count++;
+                if (count >= urls.length) {
+                  if (labelSpan) labelSpan.textContent = `Queued ${urls.length} ✓`;
+                  setTimeout(() => {
+                    btn.classList.remove("downloading");
+                    if (labelSpan) labelSpan.textContent = "SnapLoad";
+                  }, 3500);
+                }
+              }
+            );
+          });
+          return;
+        }
+      }
+
       if (labelSpan) labelSpan.textContent = "Starting...";
 
       api.runtime.sendMessage(

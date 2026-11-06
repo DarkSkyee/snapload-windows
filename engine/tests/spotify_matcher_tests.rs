@@ -226,13 +226,71 @@ fn test_domain_recognition() {
 }
 
 #[test]
+fn test_clean_title_remaster_cleaning() {
+    assert_eq!(
+        TrackMatcher::clean_title_for_search("Bohemian Rhapsody - Remastered 2011"),
+        "Bohemian Rhapsody"
+    );
+    assert_eq!(
+        TrackMatcher::clean_title_for_search("In The End (2020 Remaster)"),
+        "In The End"
+    );
+    assert_eq!(
+        TrackMatcher::clean_title_for_search("Hotel California (40th Anniversary Edition)"),
+        "Hotel California"
+    );
+}
+
+#[test]
+fn test_score_candidate_no_false_positive_penalties() {
+    // Oliver Tree should not trigger penalty for "live"
+    let oliver = CandidateVideo {
+        id: "oliver_1".to_string(),
+        title: "Oliver Tree - Hurt (Official Music Video)".to_string(),
+        uploader: "Oliver Tree".to_string(),
+        duration_seconds: 145,
+    };
+    let score_oliver = TrackMatcher::score_candidate(&oliver, "Hurt", &["Oliver Tree".to_string()], 145);
+    assert!(score_oliver >= 100.0, "Oliver Tree must not be penalized for 'live' substring; score was {}", score_oliver);
+
+    // Discovery should not trigger penalty for "cover"
+    let discovery = CandidateVideo {
+        id: "disc_1".to_string(),
+        title: "Daft Punk - Discovery (Full Album Audio)".to_string(),
+        uploader: "Daft Punk".to_string(),
+        duration_seconds: 3600,
+    };
+    let score_disc = TrackMatcher::score_candidate(&discovery, "Discovery", &["Daft Punk".to_string()], 3600);
+    assert!(score_disc >= 100.0, "Discovery must not be penalized for 'cover' substring; score was {}", score_disc);
+}
+
+#[test]
 fn test_to_embed_url_conversion() {
+    // Standard URL
     assert_eq!(
         SpotifyResolver::to_embed_url("https://open.spotify.com/track/4cOdK2wGLETKBW3PvgPWqT?si=abc123"),
         Some("https://open.spotify.com/embed/track/4cOdK2wGLETKBW3PvgPWqT".to_string())
     );
+    // International URLs (Polish, German, Spanish, French, etc.)
+    assert_eq!(
+        SpotifyResolver::to_embed_url("https://open.spotify.com/intl-pl/track/4cOdK2wGLETKBW3PvgPWqT"),
+        Some("https://open.spotify.com/embed/track/4cOdK2wGLETKBW3PvgPWqT".to_string())
+    );
+    assert_eq!(
+        SpotifyResolver::to_embed_url("https://open.spotify.com/intl-de/album/37i9dQZF1DXcBWIGoYBM5M"),
+        Some("https://open.spotify.com/embed/album/37i9dQZF1DXcBWIGoYBM5M".to_string())
+    );
+    assert_eq!(
+        SpotifyResolver::to_embed_url("https://open.spotify.com/intl-es/playlist/37i9dQZF1DXcBWIGoYBM5M"),
+        Some("https://open.spotify.com/embed/playlist/37i9dQZF1DXcBWIGoYBM5M".to_string())
+    );
+    // Spotify URIs
     assert_eq!(
         SpotifyResolver::to_embed_url("spotify:track:4cOdK2wGLETKBW3PvgPWqT"),
         Some("https://open.spotify.com/embed/track/4cOdK2wGLETKBW3PvgPWqT".to_string())
+    );
+    assert_eq!(
+        SpotifyResolver::to_embed_url("spotify:episode:72iH1e6k1bNqC6yX5L3m8A"),
+        Some("https://open.spotify.com/embed/episode/72iH1e6k1bNqC6yX5L3m8A".to_string())
     );
 }

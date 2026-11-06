@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::path::Path;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, LazyLock, Mutex};
 use tokio::process::Command;
 
 const USER_AGENT: &str =
@@ -49,6 +49,46 @@ const AUDIO_ALTERING_TAGS: &[&str] = &[
     "leak",
 ];
 
+static RE_FEAT_BRACKET: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?i)[\(\[\{]\s*(?:feat\.?|ft\.?|featuring|with|prod\.?)\s*[^)\]\}]*[\)\]\}]").unwrap()
+});
+
+static RE_FEAT_TRAILING: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?i)\s+(?:feat\.?|ft\.?|featuring|with|prod\.?)\s+.*$").unwrap()
+});
+
+static RE_OFFICIAL: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?i)[\(\[\{]\s*(?:(?:official|oficjalny)\s*(?:video|audio|music video|lyric video|visualizer|teledysk)?|lyrics?|audio|video|clip|teledysk|hd|4k)\s*[\)\]\}]").unwrap()
+});
+
+static RE_REMASTER: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?i)[\(\[\{]\s*(?:remaster(?:ed)?|(?:\d+(?:th|st|nd|rd)\s+)?anniversary(?:\s+edition)?|\d{4}\s+remaster(?:ed)?)\s*[\)\]\}]").unwrap()
+});
+
+static RE_REMASTER_TRAILING: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?i)\s*-\s*(?:remaster(?:ed)?|\d{4}\s+remaster(?:ed)?).*$").unwrap()
+});
+
+static RE_PUNCT: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r#"[,\"'“”„«»]"#).unwrap()
+});
+
+static RE_SPACE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"\s+").unwrap()
+});
+
+static RE_ARTIST_SPLIT: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?i)[,;&/]|\s+(?:feat\.?|ft\.?|x|with)\s+").unwrap()
+});
+
+static RE_EMBED_URL: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"open\.spotify\.com/(?:intl-[a-zA-Z0-9_-]+/)?(track|album|playlist|episode)/([a-zA-Z0-9]+)").unwrap()
+});
+
+static RE_URI: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"^spotify:(track|album|playlist|episode):([a-zA-Z0-9]+)$").unwrap()
+});
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SpotifyTrackMeta {
     pub title: String,
@@ -75,36 +115,26 @@ impl TrackMatcher {
         let mut cleaned = title.to_string();
 
         // 1. Remove bracketed (feat. ...), [with ...], {prod. ...}
-        if let Ok(re_feat_bracket) =
-            Regex::new(r"(?i)[\(\[\{]\s*(?:feat\.|ft\.|with|prod\.)\s*[^)\]\}]*[\)\]\}]")
-        {
-            cleaned = re_feat_bracket.replace_all(&cleaned, "").to_string();
-        }
+        cleaned = RE_FEAT_BRACKET.replace_all(&cleaned, "").to_string();
 
         // 2. Remove trailing "feat. ..." or "- feat. ..." not in brackets
-        if let Ok(re_feat_trailing) = Regex::new(r"(?i)\s+(?:feat\.|ft\.|with|prod\.)\s+.*$") {
-            cleaned = re_feat_trailing.replace_all(&cleaned, "").to_string();
-        }
+        cleaned = RE_FEAT_TRAILING.replace_all(&cleaned, "").to_string();
 
         // 3. Remove (Official Video), (Official Audio), (Lyrics), (Visualizer), (Teledysk), etc.
-        if let Ok(re_official) = Regex::new(
-            r"(?i)[\(\[\{]\s*(?:(?:official|oficjalny)\s*(?:video|audio|music video|lyric video|visualizer|teledysk)?|lyrics?|audio|video|clip|teledysk|hd|4k)\s*[\)\]\}]",
-        ) {
-            cleaned = re_official.replace_all(&cleaned, "").to_string();
-        }
+        cleaned = RE_OFFICIAL.replace_all(&cleaned, "").to_string();
 
-        // 4. Strip apostrophes so contractions (don't -> dont) match normalize_text
+        // 4. Remove Remastered / Anniversary tags
+        cleaned = RE_REMASTER.replace_all(&cleaned, "").to_string();
+        cleaned = RE_REMASTER_TRAILING.replace_all(&cleaned, "").to_string();
+
+        // 5. Strip apostrophes so contractions (don't -> dont) match normalize_text
         cleaned = cleaned.replace(['\'', '’', '`'], "");
 
-        // 5. Remove quotes, commas, brackets
-        if let Ok(re_punct) = Regex::new(r#"[,\"'“”„«»]"#) {
-            cleaned = re_punct.replace_all(&cleaned, " ").to_string();
-        }
+        // 6. Remove quotes, commas, brackets
+        cleaned = RE_PUNCT.replace_all(&cleaned, " ").to_string();
 
-        // 6. Normalize whitespace
-        if let Ok(re_space) = Regex::new(r"\s+") {
-            cleaned = re_space.replace_all(&cleaned, " ").trim().to_string();
-        }
+        // 7. Normalize whitespace
+        cleaned = RE_SPACE.replace_all(&cleaned, " ").trim().to_string();
 
         if cleaned.is_empty() {
             title.trim().to_string()
@@ -115,12 +145,8 @@ impl TrackMatcher {
 
     pub fn clean_artist_for_search(artist: &str) -> String {
         let mut cleaned = artist.replace(['\'', '’', '`'], "");
-        if let Ok(re_punct) = Regex::new(r#"[,\"'“”„«»]"#) {
-            cleaned = re_punct.replace_all(&cleaned, " ").to_string();
-        }
-        if let Ok(re_space) = Regex::new(r"\s+") {
-            cleaned = re_space.replace_all(&cleaned, " ").trim().to_string();
-        }
+        cleaned = RE_PUNCT.replace_all(&cleaned, " ").to_string();
+        cleaned = RE_SPACE.replace_all(&cleaned, " ").trim().to_string();
         if cleaned.is_empty() {
             artist.trim().to_string()
         } else {
@@ -138,11 +164,7 @@ impl TrackMatcher {
                 result.push(' ');
             }
         }
-        if let Ok(re_space) = Regex::new(r"\s+") {
-            re_space.replace_all(&result, " ").trim().to_string()
-        } else {
-            result.trim().to_string()
-        }
+        RE_SPACE.replace_all(&result, " ").trim().to_string()
     }
 
     pub fn extract_words(text: &str) -> Vec<String> {
@@ -173,15 +195,11 @@ impl TrackMatcher {
         if artist_str.trim().is_empty() {
             return Vec::new();
         }
-        if let Ok(re_split) = Regex::new(r"(?i)[,;&/]|\s+(?:feat\.|ft\.|x|with)\s+") {
-            re_split
-                .split(artist_str)
-                .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty())
-                .collect()
-        } else {
-            vec![artist_str.trim().to_string()]
-        }
+        RE_ARTIST_SPLIT
+            .split(artist_str)
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect()
     }
 
     pub fn build_search_query(title: &str, artists: &[String], artist: &str) -> String {
@@ -328,11 +346,7 @@ impl TrackMatcher {
 
         // 3. Duration match (distinguishes full song from snippets or extended versions)
         if target_duration_seconds > 0 && candidate.duration_seconds > 0 {
-            let diff = if candidate.duration_seconds >= target_duration_seconds {
-                candidate.duration_seconds - target_duration_seconds
-            } else {
-                target_duration_seconds - candidate.duration_seconds
-            };
+            let diff = candidate.duration_seconds.abs_diff(target_duration_seconds);
 
             if diff <= 3 {
                 score += 45.0;
@@ -354,7 +368,20 @@ impl TrackMatcher {
         let cand_lower = candidate.title.to_lowercase();
 
         for tag in AUDIO_ALTERING_TAGS {
-            if cand_lower.contains(tag) && !target_lower.contains(tag) {
+            // Must match as complete word/phrase, not as substring inside other words (e.g. 'Oliver' != 'live', 'Discovery' != 'cover')
+            let cand_has_tag = if tag.contains(' ') {
+                cand_lower.contains(tag)
+            } else {
+                cand_title_words.iter().any(|w| w == tag)
+            };
+
+            let target_has_tag = if tag.contains(' ') {
+                target_lower.contains(tag)
+            } else {
+                target_words.iter().any(|w| w == tag)
+            };
+
+            if cand_has_tag && !target_has_tag {
                 if ["type beat", "snippet", "teaser", "preview", "leak"].contains(tag) {
                     score -= 60.0;
                 } else {
@@ -511,6 +538,8 @@ impl SpotifyResolver {
             || trimmed.starts_with("spotify:track:")
             || trimmed.starts_with("spotify:album:")
             || trimmed.starts_with("spotify:playlist:")
+            || trimmed.starts_with("spotify:episode:")
+            || trimmed.starts_with("spotify:")
     }
 
     pub fn is_soundcloud_url(url: &str) -> bool {
@@ -520,25 +549,21 @@ impl SpotifyResolver {
 
     pub fn to_embed_url(url: &str) -> Option<String> {
         let clean = url.trim();
-        if let Ok(re) = Regex::new(r"open\.spotify\.com/(track|album|playlist)/([a-zA-Z0-9]+)") {
-            if let Some(caps) = re.captures(clean) {
-                let item_type = caps.get(1)?.as_str();
-                let item_id = caps.get(2)?.as_str();
-                return Some(format!(
-                    "https://open.spotify.com/embed/{}/{}",
-                    item_type, item_id
-                ));
-            }
+        if let Some(caps) = RE_EMBED_URL.captures(clean) {
+            let item_type = caps.get(1)?.as_str();
+            let item_id = caps.get(2)?.as_str();
+            return Some(format!(
+                "https://open.spotify.com/embed/{}/{}",
+                item_type, item_id
+            ));
         }
-        if let Ok(re_uri) = Regex::new(r"^spotify:(track|album|playlist):([a-zA-Z0-9]+)$") {
-            if let Some(caps) = re_uri.captures(clean) {
-                let item_type = caps.get(1)?.as_str();
-                let item_id = caps.get(2)?.as_str();
-                return Some(format!(
-                    "https://open.spotify.com/embed/{}/{}",
-                    item_type, item_id
-                ));
-            }
+        if let Some(caps) = RE_URI.captures(clean) {
+            let item_type = caps.get(1)?.as_str();
+            let item_id = caps.get(2)?.as_str();
+            return Some(format!(
+                "https://open.spotify.com/embed/{}/{}",
+                item_type, item_id
+            ));
         }
         None
     }
@@ -746,11 +771,7 @@ impl SpotifyResolver {
                             .map(|s| s.to_string())
                             .or_else(|| {
                                 t_obj.get("uri").and_then(|v| v.as_str()).and_then(|u| {
-                                    if u.starts_with("spotify:track:") {
-                                        Some(u["spotify:track:".len()..].to_string())
-                                    } else {
-                                        None
-                                    }
+                                    u.strip_prefix("spotify:track:").map(|s| s.to_string())
                                 })
                             });
 
@@ -844,9 +865,12 @@ impl SpotifyResolver {
         cmd.stderr(std::process::Stdio::null());
 
         if let Ok(output) = cmd.output().await {
-            if output.status.success() {
+            if output.status.success() || !output.stdout.is_empty() {
                 let stdout = String::from_utf8_lossy(&output.stdout);
-                return TrackMatcher::parse_candidates(&stdout);
+                let candidates = TrackMatcher::parse_candidates(&stdout);
+                if !candidates.is_empty() {
+                    return candidates;
+                }
             }
         }
         Vec::new()
@@ -855,8 +879,14 @@ impl SpotifyResolver {
     fn extract_thumbnail(entity: &Value) -> Option<String> {
         if let Some(visual) = entity.get("visualIdentity") {
             if let Some(img_arr) = visual.get("image").and_then(|v| v.as_array()) {
-                if let Some(first) = img_arr.first() {
-                    if let Some(u) = first.get("url").and_then(|v| v.as_str()) {
+                // Prioritize highest resolution thumbnail (e.g. 640x640)
+                let best_img = img_arr
+                    .iter()
+                    .max_by_key(|img| img.get("maxHeight").and_then(|v| v.as_u64()).unwrap_or(0))
+                    .or_else(|| img_arr.first());
+
+                if let Some(img) = best_img {
+                    if let Some(u) = img.get("url").and_then(|v| v.as_str()) {
                         if !u.is_empty() {
                             return Some(u.to_string());
                         }
@@ -866,8 +896,13 @@ impl SpotifyResolver {
         }
         if let Some(cover_art) = entity.get("coverArt") {
             if let Some(sources) = cover_art.get("sources").and_then(|v| v.as_array()) {
-                if let Some(first) = sources.first() {
-                    if let Some(u) = first.get("url").and_then(|v| v.as_str()) {
+                let best_src = sources
+                    .iter()
+                    .max_by_key(|src| src.get("height").and_then(|v| v.as_u64()).unwrap_or(0))
+                    .or_else(|| sources.first());
+
+                if let Some(src) = best_src {
+                    if let Some(u) = src.get("url").and_then(|v| v.as_str()) {
                         if !u.is_empty() {
                             return Some(u.to_string());
                         }
@@ -879,11 +914,19 @@ impl SpotifyResolver {
     }
 
     fn extract_next_data_json(html: &str) -> Option<Value> {
-        let pattern = r#"<script id="__NEXT_DATA__"[^>]*>(.*?)</script>"#;
-        let re = Regex::new(pattern).ok()?;
-        let caps = re.captures(html)?;
-        let json_text = caps.get(1)?.as_str();
-        serde_json::from_str::<Value>(json_text).ok()
+        // Fast robust extraction immune to multiline whitespace or script attributes
+        if let Some(start_tag) = html.find(r#"id="__NEXT_DATA__""#) {
+            if let Some(content_start) = html[start_tag..].find('>') {
+                let start_idx = start_tag + content_start + 1;
+                if let Some(end_idx) = html[start_idx..].find("</script>") {
+                    let json_str = html[start_idx..start_idx + end_idx].trim();
+                    if let Ok(val) = serde_json::from_str::<Value>(json_str) {
+                        return Some(val);
+                    }
+                }
+            }
+        }
+        None
     }
 }
 

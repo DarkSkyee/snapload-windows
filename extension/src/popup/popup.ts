@@ -100,7 +100,12 @@ qualitySelect.addEventListener("change", () => {
 
 function checkAutoAudioUrl(url: string) {
   const lower = url.toLowerCase();
-  if (lower.includes("spotify.com") || lower.includes("spotify.link") || lower.includes("soundcloud.com")) {
+  if (
+    lower.includes("spotify.com") ||
+    lower.includes("spotify.link") ||
+    lower.startsWith("spotify:") ||
+    lower.includes("soundcloud.com")
+  ) {
     setMediaType("audio", false);
   }
 }

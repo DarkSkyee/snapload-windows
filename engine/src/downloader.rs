@@ -512,15 +512,14 @@ impl DownloadManager {
             args.push("--embed-metadata".to_string());
             args.push("--embed-thumbnail".to_string());
             if let Some(ref sp) = spotify_meta {
-                if ffmpeg_path.is_some() {
-                    let clean_title = sp.title.replace('"', "'");
-                    let clean_artist = sp.artist.replace('"', "'");
-                    args.push("--ppa".to_string());
-                    args.push(format!(
-                        "ExtractAudio:-metadata title=\"{}\" -metadata artist=\"{}\"",
-                        clean_title, clean_artist
-                    ));
-                }
+                // Set original Spotify title and artist into yt-dlp metadata info_dict
+                // Colons are replaced so yt-dlp doesn't misparse --parse-metadata [WHEN:]FROM:TO
+                let safe_title = sp.title.replace(':', " - ");
+                let safe_artist = sp.artist.replace(':', " - ");
+                args.push("--parse-metadata".to_string());
+                args.push(format!("{}:%(title)s", safe_title));
+                args.push("--parse-metadata".to_string());
+                args.push(format!("{}:%(artist)s", safe_artist));
             }
         }
 
