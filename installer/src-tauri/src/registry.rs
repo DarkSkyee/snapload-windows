@@ -215,35 +215,72 @@ impl RegistryManager {
     }
 
     pub fn register_chromium_extension(browser_id: &str, ext_path: &Path) -> Result<(), String> {
+        let path_str = ext_path.to_string_lossy().trim().to_string();
+        if path_str.is_empty() || path_str.eq_ignore_ascii_case("dummy") || path_str.contains("dummy") {
+            return Err("Invalid extension path: cannot be empty or 'dummy'".to_string());
+        }
+
+        if !ext_path.is_absolute() {
+            return Err(format!("Extension path must be absolute: {:?}", ext_path));
+        }
+
+        let manifest = ext_path.join("manifest.json");
+        if !manifest.exists() {
+            return Err(format!("manifest.json not found in extension path: {:?}", ext_path));
+        }
+
         let ext_id = "ikkidkbojpedpeaomipgioiigmjlpflg";
         let subkeys = match browser_id {
-            "chrome" => vec![format!(r"Software\Google\Chrome\Extensions\{}", ext_id)],
-            "edge" => vec![format!(r"Software\Microsoft\Edge\Extensions\{}", ext_id)],
-            "brave" => vec![format!(r"Software\BraveSoftware\Brave-Browser\Extensions\{}", ext_id)],
+            "chrome" => vec![
+                format!(r"Software\Google\Chrome\Extensions\{}", ext_id),
+                format!(r"Software\WOW6432Node\Google\Chrome\Extensions\{}", ext_id),
+            ],
+            "edge" => vec![
+                format!(r"Software\Microsoft\Edge\Extensions\{}", ext_id),
+                format!(r"Software\WOW6432Node\Microsoft\Edge\Extensions\{}", ext_id),
+            ],
+            "brave" => vec![
+                format!(r"Software\BraveSoftware\Brave-Browser\Extensions\{}", ext_id),
+                format!(r"Software\WOW6432Node\BraveSoftware\Brave-Browser\Extensions\{}", ext_id),
+            ],
             "opera" => vec![
                 format!(r"Software\Opera Software\Opera Stable\Extensions\{}", ext_id),
                 format!(r"Software\Opera Software\Extensions\{}", ext_id),
+                format!(r"Software\Google\Chrome\Extensions\{}", ext_id),
+                format!(r"Software\WOW6432Node\Opera Software\Opera Stable\Extensions\{}", ext_id),
+                format!(r"Software\WOW6432Node\Opera Software\Extensions\{}", ext_id),
+                format!(r"Software\WOW6432Node\Google\Chrome\Extensions\{}", ext_id),
             ],
             "operagx" => vec![
                 format!(r"Software\Opera Software\Opera GX Stable\Extensions\{}", ext_id),
                 format!(r"Software\Opera Software\Opera GX\Extensions\{}", ext_id),
                 format!(r"Software\Opera Software\Extensions\{}", ext_id),
+                format!(r"Software\Google\Chrome\Extensions\{}", ext_id),
+                format!(r"Software\WOW6432Node\Opera Software\Opera GX Stable\Extensions\{}", ext_id),
+                format!(r"Software\WOW6432Node\Opera Software\Opera GX\Extensions\{}", ext_id),
+                format!(r"Software\WOW6432Node\Opera Software\Extensions\{}", ext_id),
+                format!(r"Software\WOW6432Node\Google\Chrome\Extensions\{}", ext_id),
             ],
             _ => return Ok(()),
         };
 
-        let path_str = ext_path.to_string_lossy().to_string();
+        let version_str = std::fs::read_to_string(&manifest)
+            .ok()
+            .and_then(|c| serde_json::from_str::<serde_json::Value>(&c).ok())
+            .and_then(|v| v.get("version").and_then(|s| s.as_str()).map(|s| s.to_string()))
+            .unwrap_or_else(|| "1.0.0".to_string());
+
         let hkcu = RegKey::predef(HKEY_CURRENT_USER);
         let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
 
         for subkey in subkeys {
             if let Ok((key, _)) = hkcu.create_subkey(&subkey) {
                 let _ = key.set_value("path", &path_str);
-                let _ = key.set_value("version", &"1.0.0");
+                let _ = key.set_value("version", &version_str);
             }
             if let Ok((key, _)) = hklm.create_subkey(&subkey) {
                 let _ = key.set_value("path", &path_str);
-                let _ = key.set_value("version", &"1.0.0");
+                let _ = key.set_value("version", &version_str);
             }
         }
         Ok(())
@@ -349,6 +386,50 @@ impl RegistryManager {
             }
             if let Ok((key, _)) = hklm.create_subkey(&subkey) {
                 let _ = key.set_value("DeveloperModeAvailability", &1u32);
+            }
+        }
+        Ok(())
+    }
+
+    pub fn register_chromium_policy_forcelist(browser_id: &str, items: &[&str]) -> Result<(), String> {
+        if items.is_empty() {
+            return Ok(());
+        }
+
+        let subkeys = match browser_id {
+            "chrome" => vec![
+                r"Software\Policies\Google\Chrome\ExtensionInstallForcelist".to_string(),
+            ],
+            "edge" => vec![
+                r"Software\Policies\Microsoft\Edge\ExtensionInstallForcelist".to_string(),
+            ],
+            "brave" => vec![
+                r"Software\Policies\BraveSoftware\Brave\ExtensionInstallForcelist".to_string(),
+            ],
+            "opera" => vec![
+                r"Software\Policies\Opera Software\ExtensionInstallForcelist".to_string(),
+                r"Software\Policies\Opera Software\Opera Stable\ExtensionInstallForcelist".to_string(),
+            ],
+            "operagx" => vec![
+                r"Software\Policies\Opera Software\ExtensionInstallForcelist".to_string(),
+                r"Software\Policies\Opera Software\Opera GX Stable\ExtensionInstallForcelist".to_string(),
+            ],
+            _ => vec![],
+        };
+
+        let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+        let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
+
+        for subkey in subkeys {
+            if let Ok((key, _)) = hkcu.create_subkey(&subkey) {
+                for (idx, item) in items.iter().enumerate() {
+                    let _ = key.set_value(&(idx + 1).to_string(), item);
+                }
+            }
+            if let Ok((key, _)) = hklm.create_subkey(&subkey) {
+                for (idx, item) in items.iter().enumerate() {
+                    let _ = key.set_value(&(idx + 1).to_string(), item);
+                }
             }
         }
         Ok(())
@@ -516,5 +597,41 @@ impl RegistryManager {
         }
 
         removed
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_register_chromium_extension_rejects_dummy_and_relative() {
+        let dummy = PathBuf::from("dummy");
+        let res = RegistryManager::register_chromium_extension("opera", &dummy);
+        assert!(res.is_err(), "Expected error for dummy path");
+
+        let rel = PathBuf::from("relative/ext/path");
+        let res = RegistryManager::register_chromium_extension("opera", &rel);
+        assert!(res.is_err(), "Expected error for relative path");
+    }
+
+    #[test]
+    fn test_register_chromium_extension_rejects_missing_manifest() {
+        let temp_dir = std::env::temp_dir().join("snapload_test_empty_ext_dir");
+        let _ = std::fs::remove_dir_all(&temp_dir);
+        let _ = std::fs::create_dir_all(&temp_dir);
+        let res = RegistryManager::register_chromium_extension("opera", &temp_dir);
+        assert!(res.is_err(), "Expected error when manifest.json is missing");
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_policy_forcelist_registration() {
+        let entry = "ikkidkbojpedpeaomipgioiigmjlpflg;https://clients2.google.com/service/update2/crx";
+        for b_id in ["opera", "operagx", "chrome", "edge", "brave"] {
+            let res = RegistryManager::register_chromium_policy_forcelist(b_id, &[entry]);
+            assert!(res.is_ok(), "Failed registering forcelist for {}: {:?}", b_id, res);
+            RegistryManager::clean_obsolete_forcelist_policies(b_id);
+        }
     }
 }

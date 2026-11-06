@@ -147,49 +147,18 @@ fn launch_browser_with_extension(browser_id: String) -> Result<String, String> {
         _ => None,
     };
 
+    let exe = browser_exe.ok_or_else(|| format!("Browser executable for '{}' not found.", browser_id))?;
+    let clean_exe = BrowserDetector::sanitize_exe_path(&exe);
+
     if browser_id == "firefox" {
         let xpi_path = SetupManager::get_firefox_ext_dir().join("snapload-extension-firefox.xpi");
-        if let Some(exe) = browser_exe {
-            let clean_exe = BrowserDetector::sanitize_exe_path(&exe);
-            #[cfg(windows)]
-            {
-                use std::os::windows::process::CommandExt;
-                const CREATE_NEW_PROCESS_GROUP: u32 = 0x00000200;
-                let mut cmd = std::process::Command::new(&clean_exe);
-                cmd.arg(xpi_path.to_string_lossy().to_string());
-                cmd.creation_flags(CREATE_NEW_PROCESS_GROUP);
-                cmd.spawn().map_err(|e| format!("Failed to launch Firefox: {}", e))?;
-                return Ok("Opened extension in Firefox - click 'Add' to install!".to_string());
-            }
-        } else {
-            return Err("Firefox executable not found.".to_string());
-        }
+        return SetupManager::launch_browser_isolated(&browser_id, &clean_exe, &xpi_path);
     }
 
     let ext_path = SetupManager::ensure_chromium_ext_deployed()
         .map_err(|e| format!("Could not prepare extension: {}", e))?;
-    let ext_path_str = ext_path.to_string_lossy().to_string();
 
-    if let Some(exe) = browser_exe {
-        let clean_exe = BrowserDetector::sanitize_exe_path(&exe);
-        #[cfg(windows)]
-        {
-            use std::os::windows::process::CommandExt;
-            const CREATE_NEW_PROCESS_GROUP: u32 = 0x00000200;
-            let mut cmd = std::process::Command::new(&clean_exe);
-            cmd.raw_arg(format!("--load-extension=\"{}\"", ext_path_str));
-            cmd.raw_arg("--disable-features=DisableLoadExtensionCommandLineSwitch");
-            cmd.creation_flags(CREATE_NEW_PROCESS_GROUP);
-            cmd.spawn().map_err(|e| format!("Failed to launch {}: {}", browser_id, e))?;
-            Ok(format!("Launched {} with SnapLoad loaded!", browser_id))
-        }
-        #[cfg(not(windows))]
-        {
-            Err("Only windows supported".to_string())
-        }
-    } else {
-        Err(format!("Browser executable for '{}' not found.", browser_id))
-    }
+    SetupManager::launch_browser_isolated(&browser_id, &clean_exe, &ext_path)
 }
 
 #[tauri::command]

@@ -130,212 +130,103 @@ impl SetupManager {
     }
 
     pub fn cleanup_desktop_shortcuts() -> Vec<String> {
-        let mut logs = Vec::new();
-        let mut desktop_dirs = Vec::new();
-
-        if let Some(user) = std::env::var_os("USERPROFILE") {
-            let u_path = PathBuf::from(&user);
-            desktop_dirs.push(u_path.join("Desktop"));
-            desktop_dirs.push(u_path.join("OneDrive").join("Desktop"));
-            desktop_dirs.push(u_path.join("OneDrive - Personal").join("Desktop"));
-            desktop_dirs.push(u_path.join("Pulpit"));
-            desktop_dirs.push(u_path.join("OneDrive").join("Pulpit"));
-            desktop_dirs.push(u_path.join("OneDrive - Personal").join("Pulpit"));
-        }
-        if let Some(public) = std::env::var_os("PUBLIC") {
-            desktop_dirs.push(PathBuf::from(&public).join("Desktop"));
-            desktop_dirs.push(PathBuf::from(&public).join("Pulpit"));
-        }
-
-        // Check Windows registry for redirected Desktop path
-        #[cfg(windows)]
-        {
-            use winreg::enums::HKEY_CURRENT_USER;
-            use winreg::RegKey;
-            let hkcu = RegKey::predef(HKEY_CURRENT_USER);
-            if let Ok(folders) = hkcu.open_subkey(r"Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders") {
-                if let Ok(reg_desktop) = folders.get_value::<String, _>("Desktop") {
-                    let expanded = if let Some(user) = std::env::var_os("USERPROFILE") {
-                        reg_desktop.replace("%USERPROFILE%", &user.to_string_lossy())
-                    } else {
-                        reg_desktop
-                    };
-                    let p = PathBuf::from(expanded);
-                    if !desktop_dirs.contains(&p) {
-                        desktop_dirs.push(p);
-                    }
-                }
-            }
-        }
-
-        for d in &desktop_dirs {
-            if !d.exists() {
-                continue;
-            }
-            if let Ok(entries) = std::fs::read_dir(d) {
-                for entry in entries.flatten() {
-                    let path = entry.path();
-                    if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                        let lower = name.to_lowercase();
-                        if lower.ends_with(".lnk") && (lower.starts_with("snapload") || lower.contains("snapload")) {
-                            if Self::force_remove_file(&path) {
-                                logs.push(format!("Removed desktop shortcut: {:?}", path));
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        // Also clean up any previously modified browser shortcuts on Desktop by stripping --load-extension
-        let ps_clean = r#"
-            $ws = New-Object -ComObject WScript.Shell;
-            $deskDirs = @(
-                [Environment]::GetFolderPath('Desktop'),
-                [Environment]::GetFolderPath('CommonDesktopDirectory'),
-                "$HOME\Desktop",
-                "$env:PUBLIC\Desktop",
-                "$HOME\OneDrive\Desktop",
-                "$HOME\OneDrive - Personal\Desktop"
-            );
-            foreach ($d in $deskDirs) {
-                if ($d -and (Test-Path $d)) {
-                    Get-ChildItem -Path $d -Filter "*.lnk" -ErrorAction SilentlyContinue | ForEach-Object {
-                        try {
-                            $name = $_.Name.ToLower();
-                            if ($name -like "*snapload*.lnk") {
-                                Remove-Item -LiteralPath $_.FullName -Force -ErrorAction SilentlyContinue;
-                            } else {
-                                $sc = $ws.CreateShortcut($_.FullName);
-                                $args = '' + $sc.Arguments;
-                                if ($args -like "*--load-extension=*") {
-                                    $newArgs = $args.Replace('--disable-features=DisableLoadExtensionCommandLineSwitch', '') -replace '--load-extension="[^"]*"', '' -replace "--load-extension='[^']*'", '' -replace '--load-extension=\S+', '';
-                                    $sc.Arguments = $newArgs.Trim();
-                                    $sc.Save();
-                                }
-                            }
-                        } catch {}
-                    }
-                }
-            }
-        "#;
-
-        let mut cmd = std::process::Command::new("powershell.exe");
-        #[cfg(windows)]
-        cmd.creation_flags(CREATE_NO_WINDOW);
-        cmd.args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", ps_clean]);
-        let _ = cmd.output();
-
-        logs
+        Self::clean_all_browser_shortcuts()
     }
 
-    pub fn create_or_update_browser_shortcut(
+    pub fn build_isolated_launch_args(
+        browser_id: &str,
+        ext_path: &Path,
+    ) -> Result<(PathBuf, Vec<String>), String> {
+        let path_str = ext_path.to_string_lossy().trim().to_string();
+        if path_str.is_empty() || path_str.eq_ignore_ascii_case("dummy") || path_str.contains("dummy") {
+            return Err("Invalid extension path: cannot be empty or 'dummy'".to_string());
+        }
+
+        if !ext_path.is_absolute() {
+            return Err(format!("Extension path must be absolute: {:?}", ext_path));
+        }
+
+        let manifest_path = ext_path.join("manifest.json");
+        if !manifest_path.exists() {
+            return Err(format!(
+                "manifest.json does not exist in extension path: {:?}",
+                ext_path
+            ));
+        }
+
+        let temp_profile = std::env::temp_dir().join(format!("snapload_isolated_profile_{}", browser_id));
+        let _ = std::fs::create_dir_all(&temp_profile);
+
+        let clean_profile_str = temp_profile.to_string_lossy();
+        let clean_ext_str = ext_path.to_string_lossy();
+
+        let args = vec![
+            format!("--user-data-dir=\"{}\"", clean_profile_str),
+            format!("--load-extension=\"{}\"", clean_ext_str),
+            "--disable-features=DisableLoadExtensionCommandLineSwitch".to_string(),
+            "--no-first-run".to_string(),
+            "--no-default-browser-check".to_string(),
+        ];
+
+        Ok((temp_profile, args))
+    }
+
+    pub fn launch_browser_isolated(
         browser_id: &str,
         exe_path: &str,
         ext_path: &Path,
     ) -> Result<String, String> {
-        if browser_id == "firefox" {
-            return Ok("Firefox does not require command-line extension flags".to_string());
+        let clean_exe = BrowserDetector::sanitize_exe_path(exe_path);
+        if clean_exe.is_empty() {
+            return Err(format!("Invalid executable path for browser: {}", browser_id));
         }
 
-        // Clean up any legacy or leftover Desktop shortcuts so no browser shortcuts are created on Desktop
-        let _ = Self::cleanup_desktop_shortcuts();
+        if browser_id == "firefox" {
+            let xpi_path = if ext_path.join("snapload-extension-firefox.xpi").exists() {
+                ext_path.join("snapload-extension-firefox.xpi")
+            } else if ext_path.is_file() && ext_path.extension().map_or(false, |e| e == "xpi") {
+                ext_path.to_path_buf()
+            } else {
+                Self::get_firefox_ext_dir().join("snapload-extension-firefox.xpi")
+            };
 
-        let start_menu_programs = std::env::var_os("APPDATA")
-            .map(|u| PathBuf::from(u).join(r"Microsoft\Windows\Start Menu\Programs"));
+            #[cfg(windows)]
+            {
+                use std::os::windows::process::CommandExt;
+                const CREATE_NEW_PROCESS_GROUP: u32 = 0x00000200;
+                let mut cmd = std::process::Command::new(&clean_exe);
+                cmd.arg(xpi_path.to_string_lossy().to_string());
+                cmd.creation_flags(CREATE_NEW_PROCESS_GROUP);
+                cmd.spawn().map_err(|e| format!("Failed to launch Firefox: {}", e))?;
+                return Ok("Opened extension in Firefox".to_string());
+            }
+            #[cfg(not(windows))]
+            {
+                return Err("Only windows is supported".to_string());
+            }
+        }
 
-        let ext_str = ext_path.to_string_lossy().to_string();
-        let browser_name = match browser_id {
-            "opera" => "Opera",
-            "operagx" => "Opera GX",
-            "chrome" => "Google Chrome",
-            "edge" => "Microsoft Edge",
-            "brave" => "Brave",
-            _ => "Browser",
-        };
+        let (temp_profile, args) = Self::build_isolated_launch_args(browser_id, ext_path)?;
 
-        let sm_lnk = start_menu_programs
-            .as_ref()
-            .map(|sm| sm.join(format!("SnapLoad ({}).lnk", browser_name)))
-            .unwrap_or_else(|| PathBuf::from(""));
-
-        let exe_file_name = Path::new(exe_path)
-            .file_name()
-            .map(|f| f.to_string_lossy().to_string())
-            .unwrap_or_else(|| "browser.exe".to_string());
-
-        let ps_script = format!(
-            "$ws = New-Object -ComObject WScript.Shell; \
-             $flag = '--load-extension=\"{}\" --disable-features=DisableLoadExtensionCommandLineSwitch'; \
-             $dedicated = @('{}'); \
-             foreach ($p in $dedicated) {{ \
-                 if ($p -and $p.Length -gt 0) {{ \
-                     try {{ \
-                         $s = $ws.CreateShortcut($p); \
-                         $s.TargetPath = '{}'; \
-                         $s.Arguments = $flag; \
-                         $s.IconLocation = '{}'; \
-                         $s.Description = 'Launch {} with SnapLoad extension'; \
-                         $s.Save(); \
-                     }} catch {{}} \
-                 }} \
-             }}; \
-             $cleanTarget = '{}'.ToLower(); \
-             $exeName = '{}'.ToLower(); \
-             $dirs = @( \
-                 \"$env:APPDATA\\Microsoft\\Windows\\Start Menu\\Programs\", \
-                 \"$env:ProgramData\\Microsoft\\Windows\\Start Menu\\Programs\", \
-                 \"$env:APPDATA\\Microsoft\\Internet Explorer\\Quick Launch\", \
-                 \"$env:APPDATA\\Microsoft\\Internet Explorer\\Quick Launch\\User Pinned\\StartMenu\", \
-                 \"$env:APPDATA\\Microsoft\\Internet Explorer\\Quick Launch\\User Pinned\\TaskBar\" \
-             ); \
-             $userSm = \"$env:APPDATA\\Microsoft\\Windows\\Start Menu\\Programs\"; \
-             foreach ($d in $dirs) {{ \
-                 if (Test-Path $d) {{ \
-                     Get-ChildItem -Path $d -Recurse -Filter \"*.lnk\" -ErrorAction SilentlyContinue | ForEach-Object {{ \
-                         try {{ \
-                             $sc = $ws.CreateShortcut($_.FullName); \
-                             $scTarget = ('' + $sc.TargetPath).ToLower(); \
-                             $isMatch = ($scTarget.Length -gt 0 -and ($scTarget -eq $cleanTarget -or $scTarget.EndsWith($exeName) -or $scTarget -like ('*\\' + $exeName) -or ($exeName -like '*opera*.exe' -and ($scTarget -like '*\\opera*launcher.exe' -or $scTarget -like '*\\opera*\\launcher.exe' -or $scTarget -like '*\\opera*\\opera.exe')))); \
-                             if ($isMatch) {{ \
-                                 $curArgs = ('' + $sc.Arguments).Trim(); \
-                                 $newArgs = if ($curArgs -notlike \"*--load-extension=*\") {{ if ($curArgs.Length -gt 0) {{ $curArgs + ' ' + $flag }} else {{ $flag }} }} else {{ $curArgs }}; \
-                                 if ($curArgs -notlike \"*--load-extension=*\") {{ \
-                                     $sc.Arguments = $newArgs; \
-                                     try {{ $sc.Save(); }} catch {{}} \
-                                 }} \
-                                 if ($d -like \"*ProgramData*\" -and (Test-Path $userSm)) {{ \
-                                     try {{ \
-                                         $userLnkPath = Join-Path $userSm $_.Name; \
-                                         $userSc = $ws.CreateShortcut($userLnkPath); \
-                                         $userSc.TargetPath = $sc.TargetPath; \
-                                         $userSc.Arguments = $newArgs; \
-                                         if ($sc.IconLocation) {{ $userSc.IconLocation = $sc.IconLocation; }} else {{ $userSc.IconLocation = $sc.TargetPath; }} \
-                                         if ($sc.WorkingDirectory) {{ $userSc.WorkingDirectory = $sc.WorkingDirectory; }} \
-                                         $userSc.Save(); \
-                                     }} catch {{}} \
-                                 }} \
-                             }} \
-                         }} catch {{}} \
-                     }} \
-                 }} \
-             }}",
-            ext_str.replace('\'', "''"),
-            sm_lnk.to_string_lossy().replace('\'', "''"),
-            exe_path.replace('\'', "''"),
-            exe_path.replace('\'', "''"),
-            browser_name,
-            exe_path.replace('\'', "''"),
-            exe_file_name.replace('\'', "''")
-        );
-
-        let mut cmd = std::process::Command::new("powershell.exe");
         #[cfg(windows)]
-        cmd.creation_flags(CREATE_NO_WINDOW);
-        cmd.args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", &ps_script]);
-        let _ = cmd.output();
-
-        Ok(format!("Configured Start Menu and Taskbar shortcuts for {}", browser_name))
+        {
+            use std::os::windows::process::CommandExt;
+            const CREATE_NEW_PROCESS_GROUP: u32 = 0x00000200;
+            let mut cmd = std::process::Command::new(&clean_exe);
+            for arg in &args {
+                cmd.raw_arg(arg);
+            }
+            cmd.creation_flags(CREATE_NEW_PROCESS_GROUP);
+            cmd.spawn().map_err(|e| format!("Failed to launch {}: {}", browser_id, e))?;
+            Ok(format!(
+                "Launched {} in isolated profile ({:?}) with extension",
+                browser_id, temp_profile
+            ))
+        }
+        #[cfg(not(windows))]
+        {
+            Err("Only windows is supported".to_string())
+        }
     }
 
     pub fn deploy_to_browser_profiles(chrome_unpacked_dir: &Path) -> Vec<String> {
@@ -350,24 +241,25 @@ impl SetupManager {
             logs.push(format!("Verified unpacked Chromium extension at: {:?}", chrome_unpacked_dir));
         }
 
-        // Configure enterprise policies, profile preferences, and launcher shortcuts for all detected Chromium browsers
+        // Configure enterprise policies, external extensions, and profile preferences for all detected Chromium browsers
         for b_id in ["chrome", "opera", "operagx", "edge", "brave"] {
             if let Some(exe) = BrowserDetector::find_browser_exe(b_id) {
                 let clean_exe = BrowserDetector::sanitize_exe_path(&exe);
                 if !clean_exe.is_empty() {
+                    let _ = RegistryManager::register_chromium_extension(b_id, chrome_unpacked_dir);
                     RegistryManager::register_all_chromium_policies(b_id);
                     let profiles = BrowserDetector::find_browser_profiles(b_id);
                     for prof in &profiles {
                         Self::inject_extension_to_chromium_profile(prof, "ikkidkbojpedpeaomipgioiigmjlpflg", chrome_unpacked_dir);
                     }
-                    match Self::create_or_update_browser_shortcut(b_id, &clean_exe, chrome_unpacked_dir) {
-                        Ok(msg) => logs.push(msg),
-                        Err(e) => logs.push(format!("Shortcut creation note for {}: {}", b_id, e)),
-                    }
                 }
             }
         }
-        logs.push("Configured Chromium enterprise policies, profile preferences, and shortcuts".to_string());
+
+        // Purge any corrupted shortcuts and remove orphaned snapload shortcuts across system
+        let cleaned_sc = Self::clean_all_browser_shortcuts();
+        logs.extend(cleaned_sc);
+        logs.push("Configured Chromium native registry entries, policies, and sanitized shortcuts".to_string());
 
         logs
     }
@@ -929,13 +821,10 @@ impl SetupManager {
     ) {
         let mut prefs_files = vec![
             profile_path.join("Preferences"),
-            profile_path.join("Secure Preferences"),
             profile_path.join("Default").join("Preferences"),
-            profile_path.join("Default").join("Secure Preferences"),
         ];
         if let Some(parent) = profile_path.parent() {
             prefs_files.push(parent.join("Preferences"));
-            prefs_files.push(parent.join("Secure Preferences"));
         }
 
         let path_str = unpacked_path.to_string_lossy().to_string();
@@ -1053,64 +942,86 @@ impl SetupManager {
 $ws = New-Object -ComObject WScript.Shell;
 $dirs = @(
     "$env:USERPROFILE\Desktop",
+    "$env:USERPROFILE\Pulpit",
     "C:\Users\Public\Desktop",
+    "C:\Users\Public\Pulpit",
     [Environment]::GetFolderPath("Desktop"),
     [Environment]::GetFolderPath("CommonDesktopDirectory"),
+    [Environment]::GetFolderPath("Programs"),
+    [Environment]::GetFolderPath("CommonPrograms"),
+    [Environment]::GetFolderPath("StartMenu"),
+    [Environment]::GetFolderPath("CommonStartMenu"),
     "$env:USERPROFILE\OneDrive\Desktop",
     "$env:USERPROFILE\OneDrive - Personal\Desktop",
+    "$env:USERPROFILE\OneDrive\Pulpit",
+    "$env:USERPROFILE\OneDrive - Personal\Pulpit",
+    "$env:APPDATA\Microsoft\Windows\Start Menu",
     "$env:APPDATA\Microsoft\Windows\Start Menu\Programs",
+    "$env:ProgramData\Microsoft\Windows\Start Menu",
     "$env:ProgramData\Microsoft\Windows\Start Menu\Programs",
     "$env:APPDATA\Microsoft\Internet Explorer\Quick Launch",
     "$env:APPDATA\Microsoft\Internet Explorer\Quick Launch\User Pinned\StartMenu",
     "$env:APPDATA\Microsoft\Internet Explorer\Quick Launch\User Pinned\TaskBar"
 );
+try {
+    $usf = Get-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders" -ErrorAction SilentlyContinue;
+    if ($usf) {
+        foreach ($prop in @('Desktop', 'Programs', 'Start Menu', 'Common Desktop', 'Common Programs', 'Common Start Menu')) {
+            $val = $usf.$prop;
+            if ($val) {
+                $exp = [Environment]::ExpandEnvironmentVariables($val);
+                if ($exp -and (Test-Path $exp)) { $dirs += $exp; }
+            }
+        }
+    }
+} catch {}
+$dirs = $dirs | Where-Object { $_ -and (Test-Path $_) } | Select-Object -Unique;
 foreach ($d in $dirs) {
-    if ($d -and (Test-Path $d)) {
-        Get-ChildItem -Path $d -Recurse -Filter "*.lnk" -ErrorAction SilentlyContinue | ForEach-Object {
-            try {
-                $lnkPath = $_.FullName;
-                $name = $_.Name.ToLower();
-                if ($name -like "*snapload*") {
-                    Remove-Item -Force $lnkPath -ErrorAction SilentlyContinue;
+    Get-ChildItem -Path $d -Recurse -Filter "*.lnk" -Force -ErrorAction SilentlyContinue | ForEach-Object {
+        try {
+            $lnkPath = $_.FullName;
+            $name = $_.Name.ToLower();
+            if ($name -like "*snapload*") {
+                Remove-Item -Force -LiteralPath $lnkPath -ErrorAction SilentlyContinue;
+                Write-Output "DELETED:$lnkPath";
+            } else {
+                $sc = $ws.CreateShortcut($lnkPath);
+                $targetPath = ('' + $sc.TargetPath).ToLower();
+                if ($targetPath -like "*snapload*" -or $targetPath -like "*non_existent*" -or $targetPath -like "*\dummy*" -or $targetPath -like "*/dummy*" -or $targetPath -eq "dummy") {
+                    Remove-Item -Force -LiteralPath $lnkPath -ErrorAction SilentlyContinue;
                     Write-Output "DELETED:$lnkPath";
                 } else {
-                    $sc = $ws.CreateShortcut($lnkPath);
-                    $targetPath = ('' + $sc.TargetPath).ToLower();
-                    if ($targetPath -like "*snapload*") {
-                        Remove-Item -Force $lnkPath -ErrorAction SilentlyContinue;
-                        Write-Output "DELETED:$lnkPath";
-                    } else {
-                        $args = '' + $sc.Arguments;
-                        $desc = '' + $sc.Description;
-                        $needsSave = $false;
-                        if ($args -match "load-extension|DisableLoadExtensionCommandLineSwitch|snapload|youtube") {
-                            $cleanArgs = $args -replace '(?i)--load-extension="[^"]*"', '' `
-                                               -replace "(?i)--load-extension='[^']*'", '' `
-                                               -replace '(?i)--load-extension=\S+', '' `
-                                               -replace '(?i)--disable-features=DisableLoadExtensionCommandLineSwitch', '' `
-                                               -replace '(?i)https?://[^\s]*youtube[^\s]*', '' `
-                                               -replace '(?i)(?:https?://)?(?:www\.)?youtube\.com[^\s]*', '' `
-                                               -replace '(?i)(?:https?://)?youtu\.be[^\s]*', '';
-                            $cleanArgs = [regex]::Replace($cleanArgs, '\s{2,}', ' ').Trim();
-                            if ($cleanArgs -ne $args) {
-                                $sc.Arguments = $cleanArgs;
-                                $needsSave = $true;
-                            }
-                        }
-                        if ($desc -like "*snapload*") {
-                            $sc.Description = "";
+                    $curArgs = '' + $sc.Arguments;
+                    $desc = '' + $sc.Description;
+                    $needsSave = $false;
+                    if ($curArgs -match "(?i)load-extension|DisableLoadExtensionCommandLineSwitch|snapload|youtube|dummy") {
+                        $cleanArgs = $curArgs -replace '(?i)--load-extension\s*=\s*(?:\\?"[^"]*\\?"|\\?''[^'']*\\?''|\S+)', '' `
+                                              -replace '(?i)--disable-features=DisableLoadExtensionCommandLineSwitch', '' `
+                                              -replace '(?i)https?://[^\s]*youtube[^\s]*', '' `
+                                              -replace '(?i)(?:https?://)?(?:www\.)?youtube\.com[^\s]*', '' `
+                                              -replace '(?i)(?:https?://)?youtu\.be[^\s]*', '' `
+                                              -replace '(?i)(?:\\?"|\b)dummy(?:\\?"|\b)', '';
+                        $cleanArgs = [regex]::Replace($cleanArgs, '\s{2,}', ' ').Trim();
+                        if ($cleanArgs -ne $curArgs) {
+                            if ($_.IsReadOnly) { $_.IsReadOnly = $false; }
+                            $sc.Arguments = $cleanArgs;
                             $needsSave = $true;
                         }
-                        if ($needsSave) {
-                            try {
-                                $sc.Save();
-                                Write-Output "CLEANED:$lnkPath";
-                            } catch {}
-                        }
+                    }
+                    if ($desc -like "*snapload*") {
+                        if ($_.IsReadOnly) { $_.IsReadOnly = $false; }
+                        $sc.Description = "";
+                        $needsSave = $true;
+                    }
+                    if ($needsSave) {
+                        try {
+                            $sc.Save();
+                            Write-Output "CLEANED:$lnkPath";
+                        } catch {}
                     }
                 }
-            } catch {}
-        }
+            }
+        } catch {}
     }
 }
 "#;
@@ -1873,32 +1784,26 @@ foreach ($d in $dirs) {
                 logs.push(format!("Configured permanent extension profile preferences for: {:?}", prof));
             }
 
-            // Create or update Start Menu shortcuts with --load-extension
-            match Self::create_or_update_browser_shortcut(browser_id, &exe_path, &chrome_unpacked) {
-                Ok(msg) => logs.push(msg),
-                Err(e) => logs.push(format!("Shortcut note: {}", e)),
-            }
+            // Clean up any legacy or corrupted shortcuts (NEVER modify or inject shortcuts)
+            let cleaned_sc = Self::clean_all_browser_shortcuts();
+            logs.extend(cleaned_sc);
 
-            // Launch browser in detached process with --load-extension="<path>"
+            // Launch browser cleanly to its extensions page (never append --load-extension to user profile shortcuts)
             #[cfg(windows)]
             {
                 use std::os::windows::process::CommandExt;
                 const CREATE_NEW_PROCESS_GROUP: u32 = 0x00000200;
                 let mut cmd = std::process::Command::new(&exe_path);
-                let ext_path_clean = chrome_unpacked.to_string_lossy().to_string();
-                
-                // 1. Pass --load-extension flag using raw_arg with quotes
-                cmd.raw_arg(format!("--load-extension=\"{}\"", ext_path_clean));
-                
-                // 2. Pass feature flag to allow sideloading in older/unbranded builds
-                cmd.raw_arg("--disable-features=DisableLoadExtensionCommandLineSwitch");
-
+                let ext_url = match browser_id {
+                    "opera" | "operagx" => "opera://extensions",
+                    "edge" => "edge://extensions",
+                    "brave" => "brave://extensions",
+                    _ => "chrome://extensions",
+                };
+                cmd.arg(ext_url);
                 cmd.creation_flags(CREATE_NEW_PROCESS_GROUP);
                 cmd.spawn().map_err(|e| format!("Failed to launch {}: {}", name, e))?;
-                logs.push(format!(
-                    "Launched {} with --load-extension=\"{}\"",
-                    name, ext_path_clean
-                ));
+                logs.push(format!("Launched {} opening {}", name, ext_url));
             }
         }
 
@@ -1923,7 +1828,7 @@ foreach ($d in $dirs) {
             format!("SnapLoad extension prompt opened in {}! Click 'Add' to activate.", name)
         } else {
             format!(
-                "Browser {} launched with extension parameters! Extension folder path copied to clipboard.",
+                "Browser {} configured with native registry & profile preferences! Extensions page opened.",
                 name
             )
         };
@@ -2161,11 +2066,64 @@ mod tests {
     }
 
     #[test]
-    fn test_create_shortcut_firefox_noop() {
+    fn test_isolated_launch_args_rejects_dummy() {
         let dummy = PathBuf::from("dummy");
-        let res = SetupManager::create_or_update_browser_shortcut("firefox", "firefox.exe", &dummy);
-        assert!(res.is_ok());
-        assert!(res.unwrap().contains("Firefox does not require"));
+        let res = SetupManager::build_isolated_launch_args("opera", &dummy);
+        assert!(res.is_err(), "build_isolated_launch_args must reject 'dummy' path");
+
+        let dummy_upper = PathBuf::from("DUMMY");
+        let res2 = SetupManager::build_isolated_launch_args("opera", &dummy_upper);
+        assert!(res2.is_err(), "build_isolated_launch_args must reject case-insensitive 'DUMMY'");
+    }
+
+    #[test]
+    fn test_isolated_launch_args_rejects_relative_path() {
+        let rel = PathBuf::from("extensions/chromium");
+        let res = SetupManager::build_isolated_launch_args("opera", &rel);
+        assert!(res.is_err(), "build_isolated_launch_args must reject relative path");
+    }
+
+    #[test]
+    fn test_isolated_launch_args_rejects_missing_manifest() {
+        let temp_dir = std::env::temp_dir().join("snapload_test_no_manifest_isolated");
+        let _ = std::fs::remove_dir_all(&temp_dir);
+        let _ = std::fs::create_dir_all(&temp_dir);
+        let res = SetupManager::build_isolated_launch_args("opera", &temp_dir);
+        assert!(res.is_err(), "build_isolated_launch_args must reject directory without manifest.json");
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_isolated_launch_args_success_with_valid_manifest() {
+        let temp_dir = std::env::temp_dir().join("snapload_test_valid_manifest_isolated");
+        let _ = std::fs::remove_dir_all(&temp_dir);
+        let _ = std::fs::create_dir_all(&temp_dir);
+        let manifest_file = temp_dir.join("manifest.json");
+        std::fs::write(&manifest_file, r#"{"manifest_version": 3, "name": "SnapLoad"}"#).unwrap();
+
+        let res = SetupManager::build_isolated_launch_args("opera", &temp_dir);
+        assert!(res.is_ok(), "Expected Ok for valid absolute path with manifest: {:?}", res);
+        let (profile_dir, args) = res.unwrap();
+
+        assert!(profile_dir.to_string_lossy().contains("snapload_isolated_profile_opera"));
+        assert!(args.iter().any(|a| a.starts_with("--user-data-dir=")));
+        assert!(args.iter().any(|a| a.starts_with("--load-extension=") && a.contains(&temp_dir.to_string_lossy().to_string())));
+        assert!(args.iter().any(|a| a == "--disable-features=DisableLoadExtensionCommandLineSwitch"));
+        assert!(!args.iter().any(|a| a.contains("dummy")));
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+        let _ = std::fs::remove_dir_all(&profile_dir);
+    }
+
+    #[test]
+    fn test_launch_browser_isolated_rejects_dummy_or_relative() {
+        let dummy = PathBuf::from("dummy");
+        let res = SetupManager::launch_browser_isolated("opera", "opera.exe", &dummy);
+        assert!(res.is_err(), "launch_browser_isolated must reject dummy extension path");
+
+        let rel = PathBuf::from("some/relative/path");
+        let res2 = SetupManager::launch_browser_isolated("opera", "opera.exe", &rel);
+        assert!(res2.is_err(), "launch_browser_isolated must reject relative extension path");
     }
 
     #[test]
@@ -2191,18 +2149,6 @@ mod tests {
                 let _ = SetupManager::cleanup_desktop_shortcuts();
                 assert!(!dummy_file.exists(), "Dummy case-variant shortcut must be removed by cleanup");
             }
-        }
-    }
-
-    #[test]
-    fn test_create_shortcut_does_not_create_desktop_shortcut() {
-        let dummy = PathBuf::from("dummy");
-        let res = SetupManager::create_or_update_browser_shortcut("opera", "non_existent_opera_test_path.exe", &dummy);
-        assert!(res.is_ok());
-        let user_desktop = std::env::var_os("USERPROFILE").map(|u| PathBuf::from(u).join("Desktop"));
-        if let Some(desktop) = user_desktop {
-            let snapload_opera_lnk = desktop.join("SnapLoad (Opera).lnk");
-            assert!(!snapload_opera_lnk.exists(), "Desktop shortcut SnapLoad (Opera).lnk must NOT be created");
         }
     }
 
@@ -2312,6 +2258,63 @@ mod tests {
             assert_eq!(pinned.len(), 1);
             assert_eq!(pinned[0].as_str(), Some("other_extension_12345"));
         }
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_isolated_launch_args_handles_path_with_spaces() {
+        let temp_dir = std::env::temp_dir().join("snapload test dir with spaces");
+        let _ = std::fs::remove_dir_all(&temp_dir);
+        let _ = std::fs::create_dir_all(&temp_dir);
+        let manifest_file = temp_dir.join("manifest.json");
+        std::fs::write(&manifest_file, r#"{"manifest_version": 3, "name": "SnapLoad with spaces"}"#).unwrap();
+
+        let res = SetupManager::build_isolated_launch_args("opera", &temp_dir);
+        assert!(res.is_ok(), "Expected Ok for path with spaces: {:?}", res);
+        let (profile_dir, args) = res.unwrap();
+
+        let user_data_arg = args.iter().find(|a| a.starts_with("--user-data-dir=")).unwrap();
+        assert!(user_data_arg.starts_with("--user-data-dir=\""));
+        assert!(user_data_arg.ends_with("\""));
+
+        let load_ext_arg = args.iter().find(|a| a.starts_with("--load-extension=")).unwrap();
+        assert!(load_ext_arg.starts_with("--load-extension=\""));
+        assert!(load_ext_arg.ends_with("\""));
+        assert!(load_ext_arg.contains("snapload test dir with spaces"));
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+        let _ = std::fs::remove_dir_all(&profile_dir);
+    }
+
+    #[test]
+    fn test_inject_extension_to_chromium_profile_only_modifies_preferences_not_secure_preferences() {
+        let temp_dir = std::env::temp_dir().join("snapload_profile_prefs_hmac_test");
+        let _ = std::fs::remove_dir_all(&temp_dir);
+        let _ = std::fs::create_dir_all(&temp_dir);
+
+        let ext_dir = temp_dir.join("ext_src");
+        std::fs::create_dir_all(&ext_dir).unwrap();
+        std::fs::write(ext_dir.join("manifest.json"), r#"{"manifest_version": 3, "name": "SnapLoad"}"#).unwrap();
+
+        let ext_id = "ikkidkbojpedpeaomipgioiigmjlpflg";
+        let initial_sec_prefs = r#"{"protection":{"macs":{}},"unrelated_secure_data":123}"#;
+        let sec_prefs_file = temp_dir.join("Secure Preferences");
+        std::fs::write(&sec_prefs_file, initial_sec_prefs).unwrap();
+
+        let prefs_file = temp_dir.join("Preferences");
+        std::fs::write(&prefs_file, r#"{"extensions":{"ui":{"developer_mode":false}}}"#).unwrap();
+
+        SetupManager::inject_extension_to_chromium_profile(&temp_dir, ext_id, &ext_dir);
+
+        // Verify Preferences was updated
+        let prefs_content = std::fs::read_to_string(&prefs_file).unwrap();
+        assert!(prefs_content.contains(ext_id), "Preferences must contain extension id");
+        assert!(prefs_content.contains("\"developer_mode\": true"), "developer_mode must be set to true in Preferences");
+
+        // Verify Secure Preferences was NOT touched (preserving HMAC integrity)
+        let sec_prefs_content = std::fs::read_to_string(&sec_prefs_file).unwrap();
+        assert_eq!(sec_prefs_content, initial_sec_prefs, "Secure Preferences must NOT be modified by injector");
 
         let _ = std::fs::remove_dir_all(&temp_dir);
     }
