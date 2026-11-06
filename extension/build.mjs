@@ -42,6 +42,8 @@ async function build() {
   const entryPoints = [
     { in: "src/background/index.ts", out: "background" },
     { in: "src/content/youtube.ts", out: "content/youtube" },
+    { in: "src/content/spotify.ts", out: "content/spotify" },
+    { in: "src/content/soundcloud.ts", out: "content/soundcloud" },
     { in: "src/popup/popup.ts", out: "popup/popup" },
   ];
 

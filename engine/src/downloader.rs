@@ -5,6 +5,7 @@ use crate::protocol::{
     AudioFormat, AudioQuality, EngineResponse, MediaType, ResponseType, StartDownloadPayload,
     VideoFormat, VideoQuality,
 };
+use crate::spotify::{SpotifyResolver, SpotifyTrackMeta};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fs;
@@ -61,6 +62,14 @@ impl DownloadManager {
         }
     }
 
+    pub fn is_spotify_url(url: &str) -> bool {
+        SpotifyResolver::is_spotify_url(url)
+    }
+
+    pub fn is_soundcloud_url(url: &str) -> bool {
+        SpotifyResolver::is_soundcloud_url(url)
+    }
+
     pub fn validate_url(raw_url: &str) -> Result<String, &'static str> {
         if raw_url.contains('\0') || raw_url.contains('\r') || raw_url.contains('\n') {
             return Err("URL contains forbidden control characters");
@@ -74,10 +83,10 @@ impl DownloadManager {
         }
         let parsed = Url::parse(trimmed).map_err(|_| "Invalid URL format")?;
         let scheme = parsed.scheme().to_lowercase();
-        if scheme != "http" && scheme != "https" {
-            return Err("Only HTTP and HTTPS URLs are allowed");
+        if scheme != "http" && scheme != "https" && scheme != "spotify" {
+            return Err("Only HTTP, HTTPS and Spotify URLs are allowed");
         }
-        if parsed.host_str().is_none() {
+        if scheme != "spotify" && parsed.host_str().is_none() {
             return Err("URL must specify a host");
         }
         Ok(trimmed.to_string())
@@ -346,11 +355,95 @@ impl DownloadManager {
         output_dir: PathBuf,
         response_tx: mpsc::Sender<EngineResponse>,
     ) {
-        let media_type = payload.media_type.unwrap_or(MediaType::Video);
+        let is_spotify = Self::is_spotify_url(&url);
+        let is_soundcloud = Self::is_soundcloud_url(&url);
+
+        let media_type = if is_spotify || is_soundcloud {
+            MediaType::Audio
+        } else {
+            payload.media_type.unwrap_or(MediaType::Video)
+        };
         let video_fmt = payload.video_format.unwrap_or(VideoFormat::Mp4);
         let video_qual = payload.video_quality.unwrap_or(VideoQuality::Best);
         let audio_fmt = payload.audio_format.unwrap_or(AudioFormat::Mp3);
         let audio_qual = payload.audio_quality.unwrap_or(AudioQuality::Best);
+
+        let mut target_url = url.clone();
+        let mut spotify_meta: Option<SpotifyTrackMeta> = None;
+
+        if is_spotify {
+            let _ = response_tx
+                .send(EngineResponse::ok(
+                    &download_id,
+                    ResponseType::DownloadProgress,
+                    serde_json::json!({
+                        "download_id": &download_id,
+                        "percent": 0.0,
+                        "speed": "",
+                        "eta": "",
+                        "total_bytes": 0,
+                        "downloaded_bytes": 0,
+                        "status": "Resolving Spotify track metadata...",
+                    }),
+                ))
+                .await;
+
+            let resolver = SpotifyResolver::new();
+            if let Some(track) = resolver.resolve_track(&url).await {
+                let _ = response_tx
+                    .send(EngineResponse::ok(
+                        &download_id,
+                        ResponseType::DownloadProgress,
+                        serde_json::json!({
+                            "download_id": &download_id,
+                            "percent": 0.0,
+                            "speed": "",
+                            "eta": "",
+                            "total_bytes": 0,
+                            "downloaded_bytes": 0,
+                            "status": format!("Matching '{}' on YouTube...", track.title),
+                        }),
+                    ))
+                    .await;
+
+                if let Some(match_cand) =
+                    SpotifyResolver::find_best_youtube_match(&ytdlp_path, &track).await
+                {
+                    Logger::info(&format!(
+                        "Spotify track '{} - {}' matched to YouTube video: {} ('{}')",
+                        track.artist, track.title, match_cand.id, match_cand.title
+                    ));
+                    target_url = format!("https://www.youtube.com/watch?v={}", match_cand.id);
+                    spotify_meta = Some(track);
+                } else {
+                    Logger::warn(&format!(
+                        "Could not match Spotify track '{} - {}' on YouTube",
+                        track.artist, track.title
+                    ));
+                    let _ = response_tx
+                        .send(EngineResponse::err(
+                            &download_id,
+                            "SPOTIFY_NO_MATCH",
+                            &format!(
+                                "Could not find a high-accuracy match on YouTube for Spotify track: '{} - {}'",
+                                track.artist, track.title
+                            ),
+                        ))
+                        .await;
+                    return;
+                }
+            } else {
+                Logger::error(&format!("Failed to retrieve Spotify track metadata for {}", url));
+                let _ = response_tx
+                    .send(EngineResponse::err(
+                        &download_id,
+                        "SPOTIFY_RESOLVE_FAILED",
+                        "Failed to retrieve metadata from Spotify. Please check the track link.",
+                    ))
+                    .await;
+                return;
+            }
+        }
 
         let unique_prefix = format!("snapload_{}", download_id);
         let output_template = output_dir.join(format!("{}_%(title).100s.%(ext)s", unique_prefix));
@@ -415,9 +508,25 @@ impl DownloadManager {
             args.push(audio_qual.ytdl_quality().to_string());
         }
 
+        if is_spotify {
+            args.push("--embed-metadata".to_string());
+            args.push("--embed-thumbnail".to_string());
+            if let Some(ref sp) = spotify_meta {
+                if ffmpeg_path.is_some() {
+                    let clean_title = sp.title.replace('"', "'");
+                    let clean_artist = sp.artist.replace('"', "'");
+                    args.push("--ppa".to_string());
+                    args.push(format!(
+                        "ExtractAudio:-metadata title=\"{}\" -metadata artist=\"{}\"",
+                        clean_title, clean_artist
+                    ));
+                }
+            }
+        }
+
         // Positional argument delimiter prevents option parsing confusion
         args.push("--".to_string());
-        args.push(url.clone());
+        args.push(target_url.clone());
 
         Logger::info(&format!("Spawning yt-dlp for {}: {:?}", download_id, args));
 

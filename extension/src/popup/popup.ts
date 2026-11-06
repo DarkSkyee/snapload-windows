@@ -98,11 +98,23 @@ qualitySelect.addEventListener("change", () => {
   }
 });
 
+function checkAutoAudioUrl(url: string) {
+  const lower = url.toLowerCase();
+  if (lower.includes("spotify.com") || lower.includes("spotify.link") || lower.includes("soundcloud.com")) {
+    setMediaType("audio", false);
+  }
+}
+
+urlInput.addEventListener("input", () => {
+  checkAutoAudioUrl(urlInput.value);
+});
+
 pasteBtn.addEventListener("click", async () => {
   try {
     const text = await navigator.clipboard.readText();
     if (text) {
       urlInput.value = text.trim();
+      checkAutoAudioUrl(urlInput.value);
     }
   } catch (e) {
     console.warn("Clipboard access denied:", e);
@@ -290,6 +302,7 @@ document.addEventListener("DOMContentLoaded", () => {
       const currentUrl = tabs[0].url;
       if (currentUrl.startsWith("http://") || currentUrl.startsWith("https://")) {
         urlInput.value = currentUrl;
+        checkAutoAudioUrl(currentUrl);
       }
     }
   });

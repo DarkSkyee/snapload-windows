@@ -16,8 +16,62 @@ interface DownloadState {
 const activeDownloads = new Map<string, DownloadState>();
 const cancelledDownloads = new Set<string>();
 const notifiedCancelled = new Set<string>();
+const MAX_CONCURRENT_DOWNLOADS = 2;
+const pendingQueue: { downloadId: string; payload: StartDownloadPayload }[] = [];
+const runningDownloadIds = new Set<string>();
 let nativePort: chrome.runtime.Port | null = null;
 let isConnecting = false;
+
+function processNextInQueue() {
+  while (runningDownloadIds.size < MAX_CONCURRENT_DOWNLOADS && pendingQueue.length > 0) {
+    const next = pendingQueue.shift();
+    if (!next) break;
+
+    if (cancelledDownloads.has(next.downloadId)) {
+      activeDownloads.delete(next.downloadId);
+      updateBadge();
+      continue;
+    }
+
+    const port = getOrCreateNativePort();
+    if (!port) {
+      const item = activeDownloads.get(next.downloadId);
+      if (item) {
+        item.status = "Failed";
+        item.error = "SnapLoad Engine offline. Launch SnapLoad Setup.";
+      }
+      updateBadge();
+      continue;
+    }
+
+    runningDownloadIds.add(next.downloadId);
+    const item = activeDownloads.get(next.downloadId);
+    if (item && item.status.startsWith("Queued")) {
+      item.status = "Starting...";
+    }
+    updateBadge();
+
+    const engineReq = {
+      id: next.downloadId,
+      version: "1.0",
+      action: "start_download",
+      payload: next.payload,
+    };
+
+    try {
+      port.postMessage(engineReq);
+    } catch (err: any) {
+      runningDownloadIds.delete(next.downloadId);
+      if (item) {
+        item.status = "Failed";
+        item.error = err?.message || "Failed to communicate with Engine";
+      }
+      updateBadge();
+      // Try next in queue
+      processNextInQueue();
+    }
+  }
+}
 
 function getOrCreateNativePort(): chrome.runtime.Port | null {
   if (nativePort) return nativePort;
@@ -46,6 +100,9 @@ function getOrCreateNativePort(): chrome.runtime.Port | null {
       } else if (friendlyError.toLowerCase().includes("forbidden") || friendlyError.toLowerCase().includes("denied")) {
         friendlyError = "Extension ID not allowed in Native Messaging host. Run SnapLoad Setup.";
       }
+
+      runningDownloadIds.clear();
+      pendingQueue.length = 0;
 
       // Mark all queued or running downloads as failed
       for (const dl of activeDownloads.values()) {
@@ -202,6 +259,18 @@ function handleNativeMessage(response: EngineResponse<any>) {
     }
   }
 
+  if (
+    response.type === "download_completed" ||
+    response.type === "download_failed" ||
+    response.type === "error" ||
+    response.type === "download_cancelled"
+  ) {
+    if (downloadId) {
+      runningDownloadIds.delete(downloadId);
+    }
+    processNextInQueue();
+  }
+
   // Relay event to active popup (skip ping/pong to avoid triggering ping cascades)
   if (response.type !== "pong") {
     api.runtime.sendMessage({
@@ -240,51 +309,23 @@ function showNotification(title: string, message: string) {
   }
 }
 
-// Send download command to Rust Engine
+// Send download command to Rust Engine via BatchQueueManager (max 2 concurrent)
 export function requestDownload(payload: StartDownloadPayload): string {
   const downloadId = "dl_" + Math.random().toString(36).substring(2, 10);
 
-  // Immediately track as Queued so popup UI displays active download item instantly
+  const isSlotAvailable = runningDownloadIds.size < MAX_CONCURRENT_DOWNLOADS;
   activeDownloads.set(downloadId, {
     id: downloadId,
     url: payload.url,
     percent: 0,
     speed: "",
     eta: "",
-    status: "Queued",
+    status: isSlotAvailable ? "Queued" : "Queued (Waiting for slot)",
   });
   updateBadge();
 
-  const port = getOrCreateNativePort();
-
-  if (!port) {
-    const item = activeDownloads.get(downloadId);
-    if (item) {
-      item.status = "Failed";
-      item.error = "SnapLoad Engine offline. Launch SnapLoad Setup.";
-    }
-    updateBadge();
-    showNotification("SnapLoad Engine Not Connected", "Please ensure SnapLoad Windows Setup has been executed.");
-    return downloadId;
-  }
-
-  const engineReq = {
-    id: downloadId,
-    version: "1.0",
-    action: "start_download",
-    payload: payload,
-  };
-
-  try {
-    port.postMessage(engineReq);
-  } catch (err: any) {
-    const item = activeDownloads.get(downloadId);
-    if (item) {
-      item.status = "Failed";
-      item.error = err?.message || "Failed to communicate with Engine";
-    }
-    updateBadge();
-  }
+  pendingQueue.push({ downloadId, payload });
+  processNextInQueue();
 
   return downloadId;
 }
@@ -318,8 +359,14 @@ api.runtime.onMessage.addListener((message: InternalMessage, _sender: any, sendR
       const dlId = message.payload?.download_id;
       if (dlId) {
         cancelledDownloads.add(dlId);
+        const qIdx = pendingQueue.findIndex(q => q.downloadId === dlId);
+        if (qIdx !== -1) {
+          pendingQueue.splice(qIdx, 1);
+        }
+        runningDownloadIds.delete(dlId);
         activeDownloads.delete(dlId);
         updateBadge();
+        processNextInQueue();
 
         const port = getOrCreateNativePort();
         if (port) {

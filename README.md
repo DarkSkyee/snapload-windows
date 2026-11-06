@@ -50,7 +50,9 @@ Unlike web converter portals with intrusive ads or heavy Electron background dae
 - ⚡ **No Permanent Background Daemons**: The Desktop Engine starts on-demand when requested by the browser via Native Messaging and terminates cleanly upon task completion. Zero idle memory consumption.
 - 🚀 **Zero Electron**: Ultra-lightweight native Rust core paired with modern WebExtensions and an optional Tauri 2 setup wizard.
 - 🌐 **Multi-Browser Compatibility**: Dedicated Manifest V3 builds for **Chromium** (Google Chrome, Microsoft Edge, Brave, Opera) and WebExtensions for **Mozilla Firefox**.
-- 🎬 **YouTube SPA Integration**: Injects a clean, native download button into YouTube's player action bar with seamless support for YouTube SPA navigation (`yt-navigate-finish`) and duplicate protection.
+- 🎬 **YouTube SPA Integration**: Injects a clean, native download button into YouTube's player control bar with seamless support for YouTube SPA navigation (`yt-navigate-finish`) and duplicate protection.
+- 🎵 **Spotify & SoundCloud Native Integration**: Direct in-browser downloading from `open.spotify.com` and `soundcloud.com` with native player bar buttons, tracklist row actions, automated metadata embedding, and high-accuracy `TrackMatcher` audio matching.
+- 🚦 **Smart Batch Queue Manager**: Built-in concurrency control (limit of 2 concurrent downloads) to prevent rate limits (HTTP 429) when downloading albums and playlists.
 - 🖱️ **Context Menu**: Right-click any video, audio, or webpage link to trigger "Download with SnapLoad".
 - 🎧 **Multi-Format & Quality Selection**:
   - **Video**: MP4 (H.264), MKV, WebM in Best Available (4K / Original), 1080p FHD, 720p HD, 480p SD.

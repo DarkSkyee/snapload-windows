@@ -14,7 +14,10 @@
   ],
   "host_permissions": [
     "*://*.youtube.com/*",
-    "*://*.youtu.be/*"
+    "*://*.youtu.be/*",
+    "*://*.spotify.com/*",
+    "*://spotify.link/*",
+    "*://*.soundcloud.com/*"
   ],
   "background": {
     "service_worker": "background.js",
@@ -42,6 +45,22 @@
         "https://*.youtube.com/*"
       ],
       "js": ["content/youtube.js"],
+      "run_at": "document_end"
+    },
+    {
+      "matches": [
+        "*://*.spotify.com/*",
+        "https://*.spotify.com/*"
+      ],
+      "js": ["content/spotify.js"],
+      "run_at": "document_end"
+    },
+    {
+      "matches": [
+        "*://*.soundcloud.com/*",
+        "https://*.soundcloud.com/*"
+      ],
+      "js": ["content/soundcloud.js"],
       "run_at": "document_end"
     }
   ]

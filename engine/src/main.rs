@@ -5,6 +5,7 @@ mod dependency;
 mod downloader;
 mod logger;
 mod protocol;
+mod spotify;
 
 use config::EngineConfig;
 use dependency::DependencyManager;
