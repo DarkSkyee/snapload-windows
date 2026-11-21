@@ -10,14 +10,17 @@
     "contextMenus",
     "tabs",
     "notifications",
-    "storage"
+    "storage",
+    "alarms"
   ],
   "host_permissions": [
     "*://*.youtube.com/*",
     "*://*.youtu.be/*",
     "*://*.spotify.com/*",
     "*://spotify.link/*",
-    "*://*.soundcloud.com/*"
+    "*://*.soundcloud.com/*",
+    "https://api.github.com/*",
+    "https://raw.githubusercontent.com/*"
   ],
   "background": {
     "service_worker": "background.js",

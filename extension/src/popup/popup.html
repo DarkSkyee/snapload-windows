@@ -31,6 +31,26 @@
       </div>
     </header>
 
+    <!-- Update Banner (hidden by default) -->
+    <div id="update-banner" class="update-banner hidden">
+      <div class="update-banner-content">
+        <div class="update-icon-wrapper">
+          <svg class="update-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+            <polyline points="7 10 12 15 17 10"></polyline>
+            <line x1="12" y1="15" x2="12" y2="3"></line>
+          </svg>
+        </div>
+        <div class="update-info">
+          <span class="update-title">Update Available</span>
+          <span id="update-version-label" class="update-desc">New version is ready</span>
+        </div>
+      </div>
+      <a id="update-action-btn" class="update-action-btn" href="https://github.com/DarkSkyee/SnapLoad-Windows/releases" target="_blank" rel="noreferrer">
+        Update
+      </a>
+    </div>
+
     <!-- URL Section -->
     <section class="url-card">
       <label for="url-input" class="section-label">Target Media URL</label>
@@ -87,10 +107,18 @@
 
     <!-- Footer -->
     <footer class="footer">
-      <a href="https://github.com/DarkSkyee/snapload-windows" target="_blank" rel="noreferrer" class="footer-link">
+      <a href="https://github.com/DarkSkyee/SnapLoad-Windows" target="_blank" rel="noreferrer" class="footer-link">
         GitHub • Help & Docs
       </a>
-      <span class="version-tag">v1.0.0</span>
+      <div class="version-wrapper">
+        <span class="version-tag" id="app-version">v1.0.0</span>
+        <button id="check-update-btn" class="check-update-btn" title="Check for updates" aria-label="Check for updates">
+          <svg class="check-update-icon" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M23 4v6h-6"></path>
+            <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+          </svg>
+        </button>
+      </div>
     </footer>
   </div>
 

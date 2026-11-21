@@ -14,6 +14,11 @@ const statusBadge = document.getElementById("engine-status") as HTMLElement;
 const statusLabel = document.getElementById("status-label") as HTMLElement;
 const downloadsContainer = document.getElementById("downloads-container") as HTMLElement;
 const downloadsList = document.getElementById("downloads-list") as HTMLElement;
+const updateBanner = document.getElementById("update-banner") as HTMLElement;
+const updateVersionLabel = document.getElementById("update-version-label") as HTMLElement;
+const updateActionBtn = document.getElementById("update-action-btn") as HTMLAnchorElement;
+const checkUpdateBtn = document.getElementById("check-update-btn") as HTMLButtonElement;
+const appVersionTag = document.getElementById("app-version") as HTMLElement;
 
 const videoFormats = [
   { value: "mp4", label: "MP4" },
@@ -266,6 +271,85 @@ function checkEngineStatus() {
   });
 }
 
+// Update banner helpers
+function showUpdateBanner(latestVersion?: string, releaseUrl?: string) {
+  if (!updateBanner) return;
+  if (latestVersion && updateVersionLabel) {
+    const cleanVer = latestVersion.replace(/^v/i, "");
+    updateVersionLabel.textContent = `v${cleanVer} is ready to install`;
+  }
+  if (updateActionBtn) {
+    const targetUrl = releaseUrl || "https://github.com/DarkSkyee/SnapLoad-Windows/releases";
+    updateActionBtn.href = targetUrl;
+    updateActionBtn.setAttribute("data-url", targetUrl);
+  }
+  updateBanner.classList.remove("hidden");
+}
+
+function hideUpdateBanner() {
+  if (!updateBanner) return;
+  updateBanner.classList.add("hidden");
+}
+
+function loadStoredUpdateStatus() {
+  api.storage?.local?.get(
+    ["updateAvailable", "latestVersion", "releaseUrl"],
+    (stored: any) => {
+      if (stored && stored.updateAvailable) {
+        showUpdateBanner(stored.latestVersion, stored.releaseUrl);
+      } else {
+        hideUpdateBanner();
+      }
+    }
+  );
+}
+
+if (updateActionBtn) {
+  updateActionBtn.addEventListener("click", (e) => {
+    e.preventDefault();
+    const url =
+      updateActionBtn.getAttribute("data-url") ||
+      updateActionBtn.href ||
+      "https://github.com/DarkSkyee/SnapLoad-Windows/releases";
+    if (api.tabs?.create) {
+      api.tabs.create({ url });
+    } else {
+      window.open(url, "_blank");
+    }
+  });
+}
+
+if (checkUpdateBtn) {
+  checkUpdateBtn.addEventListener("click", () => {
+    checkUpdateBtn.classList.add("checking");
+    checkUpdateBtn.disabled = true;
+    checkUpdateBtn.title = "Checking for updates...";
+
+    api.runtime.sendMessage({ type: "CHECK_FOR_UPDATES" }, (response: any) => {
+      setTimeout(() => {
+        checkUpdateBtn.classList.remove("checking");
+        checkUpdateBtn.disabled = false;
+      }, 500);
+
+      if (response && response.updateAvailable) {
+        showUpdateBanner(response.latestVersion, response.releaseUrl);
+        checkUpdateBtn.title = `Update available: v${response.latestVersion}`;
+      } else if (response && response.error) {
+        checkUpdateBtn.title = "Update check failed (offline)";
+        setTimeout(() => {
+          checkUpdateBtn.title = "Check for updates";
+        }, 3000);
+      } else {
+        hideUpdateBanner();
+        checkUpdateBtn.title = "Up to date ✓";
+        setTimeout(() => {
+          checkUpdateBtn.title = "Check for updates";
+        }, 3000);
+      }
+    });
+  });
+}
+
 // Listen for push notifications from background script
 api.runtime.onMessage.addListener((message: any) => {
   if (message.type === "ENGINE_EVENT") {
@@ -273,12 +357,28 @@ api.runtime.onMessage.addListener((message: any) => {
   } else if (message.type === "ENGINE_STATUS") {
     checkEngineStatus();
     refreshActiveDownloads();
+  } else if (message.type === "UPDATE_STATUS_CHANGED") {
+    if (message.payload?.updateAvailable) {
+      showUpdateBanner(message.payload.latestVersion, message.payload.releaseUrl);
+    } else {
+      hideUpdateBanner();
+    }
   }
 });
 
 // Initialize on popup open
 document.addEventListener("DOMContentLoaded", () => {
   updateSelectors();
+
+  // Display version in footer from manifest
+  try {
+    const manifestVer = api.runtime.getManifest?.()?.version;
+    if (manifestVer && appVersionTag) {
+      appVersionTag.textContent = `v${manifestVer}`;
+    }
+  } catch (_) {}
+
+  loadStoredUpdateStatus();
 
   // Restore saved preferences
   try {
