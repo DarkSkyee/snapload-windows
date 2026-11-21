@@ -92,12 +92,88 @@ Unlike web converter portals with intrusive ads or heavy Electron background dae
 
 ### Method 1: Graphical Setup Wizard (Recommended)
 1. Download `snapload-setup.exe` from the latest **[Releases](https://github.com/DarkSkyee/snapload-windows/releases)**.
-2. Launch the installer. It will automatically detect your installed browsers (Chrome, Edge, Brave, Opera, Firefox).
+2. Launch the installer. It will automatically detect your installed browsers (Chrome, Edge, Brave, Opera, Opera GX, Firefox).
 3. Select your desired browsers and click **Install & Configure SnapLoad**.
-4. Activate your browser extension using the on-screen guide.
+4. The installer automatically deploys the Desktop Engine, registers Windows Native Messaging registry keys, extracts the browser extensions, and guides you through loading them.
 
 ### Method 2: Portable / Manual Installation
-For manual setup, see the complete [Installation Guide](docs/INSTALLATION.md).
+For full manual headless setup without the graphical wizard, see the [Installation Guide](docs/INSTALLATION.md).
+
+---
+
+## 🧩 Detailed Browser Extension Installation Guide
+
+SnapLoad integrates directly into your browser via a lightweight WebExtension. Because SnapLoad is distributed directly from GitHub (outside the Chrome Web Store / Firefox Add-ons store), it is installed using standard Developer Mode.
+
+### 🌐 1. Chromium Browsers (Google Chrome, Microsoft Edge, Brave, Opera, Opera GX)
+
+All Chromium-based browsers use the same packed or unpacked extension.
+
+#### Step 1: Obtain the Extension Files
+- **If you used `snapload-setup.exe`**: The extension is already unpacked and ready at:
+  ```text
+  %LOCALAPPDATA%\SnapLoad\extensions\chromium
+  ```
+  *(Press `Win + R`, paste the path above, and press Enter to view it).*
+- **If installing manually / standalone**: Download `snapload-extension-chromium.zip` from [Releases](https://github.com/DarkSkyee/snapload-windows/releases) and extract it to a permanent folder (e.g. `C:\Users\<YourUser>\Documents\SnapLoadExtension`).
+
+#### Step 2: Open Extensions Page in Your Browser
+Open your browser and navigate to the extensions page by typing the following URL in the address bar:
+| Browser | Address URL |
+| :--- | :--- |
+| **Google Chrome** | `chrome://extensions` |
+| **Microsoft Edge** | `edge://extensions` |
+| **Brave Browser** | `brave://extensions` |
+| **Opera** | `opera://extensions` |
+| **Opera GX** | `opera://extensions` |
+
+#### Step 3: Enable Developer Mode
+Look for the **Developer mode** toggle (**Tryb programisty**):
+- **Chrome / Brave**: Switch the toggle located in the **top-right corner** of the page.
+- **Edge**: Turn on the toggle in the **left sidebar** or **top-right**.
+- **Opera / Opera GX**: Switch the toggle located in the **top-right corner**.
+
+#### Step 4: Load the Unpacked Extension
+1. Click the button labeled **Load unpacked** (**Załaduj rozpakowane**) in the top toolbar.
+2. A folder picker dialog will appear. Select the `chromium` folder:
+   - For automatic setup: `%LOCALAPPDATA%\SnapLoad\extensions\chromium`
+   - For manual setup: The unzipped folder containing `manifest.json`.
+3. Click **Select Folder**.
+
+#### Step 5: Pin and Verify
+1. Click the puzzle-piece icon (🧩) in your browser toolbar.
+2. Find **SnapLoad** and click the **Pin** icon to keep it visible in your toolbar.
+3. Open [YouTube](https://www.youtube.com), [Spotify Web Player](https://open.spotify.com), or [SoundCloud](https://soundcloud.com). You will see native **Download** buttons automatically appear inside the players and tracklists!
+
+---
+
+### 🦊 2. Mozilla Firefox
+
+#### Option A: Load via `about:debugging` (Fastest for testing)
+1. Open Firefox and enter `about:debugging#/runtime/this-firefox` in the address bar.
+2. Click **Load Temporary Add-on...** (**Załaduj dodatek tymczasowy...**).
+3. Select `manifest.json` from:
+   ```text
+   %LOCALAPPDATA%\SnapLoad\extensions\firefox\manifest.json
+   ```
+   *(or the extracted `manifest.json` from `snapload-extension-firefox.zip`).*
+4. SnapLoad is now active in Firefox!
+
+#### Option B: Install Signed XPI Package
+1. In Firefox, open `about:addons`.
+2. Click the gear icon (⚙️) next to "Manage Your Extensions" in the top-right corner.
+3. Select **Install Add-on From File...** (**Zainstaluj dodatek z pliku...**).
+4. Choose the `snapload-extension-firefox.xpi` file (located in `%LOCALAPPDATA%\SnapLoad\extensions\firefox\` or downloaded from Releases).
+5. Confirm the installation prompts.
+
+---
+
+### 🔍 3. Verifying Native Messaging Connection
+
+1. Click the **SnapLoad** extension icon in your browser toolbar to open the popup.
+2. The popup communicates directly with `snapload-engine.exe` via standard Windows stdin/stdout:
+   - A **green dot** or **Connected** status confirms the native host is registered and responsive.
+   - If it reports *Disconnected*, ensure you have run `snapload-setup.exe` so the Windows Registry keys (`HKCU\Software\Google\Chrome\NativeMessagingHosts\com.darkskyee.snapload`) are initialized.
 
 ---
 
