@@ -10,11 +10,14 @@
     "tabs",
     "notifications",
     "storage",
+    "alarms",
     "*://*.youtube.com/*",
     "*://*.youtu.be/*",
     "*://*.spotify.com/*",
     "*://spotify.link/*",
-    "*://*.soundcloud.com/*"
+    "*://*.soundcloud.com/*",
+    "https://api.github.com/*",
+    "https://raw.githubusercontent.com/*"
   ],
   "background": {
     "scripts": ["background.js"]

@@ -47,6 +47,16 @@ export interface EngineResponse<T = unknown> {
   error?: EngineError;
 }
 
+export interface UpdateCheckResult {
+  updateAvailable: boolean;
+  latestVersion?: string;
+  currentVersion?: string;
+  releaseUrl?: string;
+  releaseNotes?: string;
+  lastChecked: number;
+  error?: string;
+}
+
 // Internal messages between Popup/Content script and Service Worker
 export type InternalMessageType =
   | "START_DOWNLOAD"
@@ -54,7 +64,10 @@ export type InternalMessageType =
   | "CANCEL_DOWNLOAD"
   | "DISMISS_DOWNLOAD"
   | "PING_ENGINE"
-  | "ENGINE_STATUS";
+  | "ENGINE_STATUS"
+  | "CHECK_FOR_UPDATES"
+  | "GET_UPDATE_INFO"
+  | "UPDATE_STATUS_CHANGED";
 
 export interface InternalMessage {
   type: InternalMessageType;
