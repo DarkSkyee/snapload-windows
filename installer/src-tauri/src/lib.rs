@@ -62,8 +62,8 @@ async fn check_updates() -> UpdateInfo {
 }
 
 #[tauri::command]
-async fn check_setup_update() -> SetupUpdateInfo {
-    UpdateChecker::check_setup_update().await
+async fn check_setup_update(channel: Option<String>) -> SetupUpdateInfo {
+    UpdateChecker::check_setup_update(channel).await
 }
 
 #[tauri::command]
@@ -100,17 +100,30 @@ fn get_paths() -> ExtensionPaths {
     SetupManager::get_paths()
 }
 
+pub fn validate_external_url(url: &str) -> Result<&str, String> {
+    let trimmed = url.trim();
+    if !trimmed.starts_with("https://") && !trimmed.starts_with("http://") {
+        return Err("Only http:// and https:// URLs are allowed".to_string());
+    }
+    if trimmed.chars().any(|c| c.is_control() || c == '"' || c == '<' || c == '>' || c.is_whitespace()) {
+        return Err("URL contains invalid characters".to_string());
+    }
+    Ok(trimmed)
+}
+
 #[tauri::command]
 fn open_url(url: String) -> Result<(), String> {
+    let safe_url = validate_external_url(&url)?;
     #[cfg(windows)]
     {
         let mut cmd = std::process::Command::new("explorer.exe");
-        cmd.arg(&url);
+        cmd.arg(safe_url);
         cmd.spawn().map_err(|e| format!("Failed to open URL: {}", e))?;
         Ok(())
     }
     #[cfg(not(windows))]
     {
+        let _ = safe_url;
         Err("Only windows is supported".to_string())
     }
 }
@@ -199,8 +212,7 @@ fn open_browser_extensions_page(browser_id: String) -> Result<String, String> {
             Err("Only windows supported".to_string())
         }
     } else {
-        open_url(url.to_string())?;
-        Ok(format!("Opened {}", url))
+        Err(format!("Browser executable for '{}' not found", browser_id))
     }
 }
 
@@ -246,4 +258,23 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_validate_external_url() {
+        assert!(validate_external_url("https://github.com/DarkSkyee/SnapLoad-Windows").is_ok());
+        assert!(validate_external_url("http://example.com").is_ok());
+        assert!(validate_external_url("  https://google.com  ").is_ok());
+
+        assert!(validate_external_url("file:///C:/Windows/System32/cmd.exe").is_err());
+        assert!(validate_external_url("chrome://extensions").is_err());
+        assert!(validate_external_url("calc.exe").is_err());
+        assert!(validate_external_url("javascript:alert(1)").is_err());
+        assert!(validate_external_url("https://example.com/\"evil\"").is_err());
+        assert!(validate_external_url("https://example.com/bad url").is_err());
+    }
 }
