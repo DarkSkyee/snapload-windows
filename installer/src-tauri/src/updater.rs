@@ -29,6 +29,136 @@ pub struct SetupUpdateInfo {
     pub published_at: Option<String>,
     pub file_size_bytes: Option<u64>,
     pub error: Option<String>,
+    #[serde(default)]
+    pub channel: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum UpdateChannel {
+    Stable,
+    Alpha,
+}
+
+impl UpdateChannel {
+    pub fn from_str_opt(s: Option<&str>) -> Self {
+        match s.map(|v| v.trim().to_lowercase()) {
+            Some(ref v) if v == "alpha" => UpdateChannel::Alpha,
+            _ => UpdateChannel::Stable,
+        }
+    }
+
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            UpdateChannel::Stable => "stable",
+            UpdateChannel::Alpha => "alpha",
+        }
+    }
+}
+
+impl Default for UpdateChannel {
+    fn default() -> Self {
+        UpdateChannel::Stable
+    }
+}
+
+impl From<Option<String>> for UpdateChannel {
+    fn from(opt: Option<String>) -> Self {
+        Self::from_str_opt(opt.as_deref())
+    }
+}
+
+impl From<Option<&str>> for UpdateChannel {
+    fn from(opt: Option<&str>) -> Self {
+        Self::from_str_opt(opt)
+    }
+}
+
+impl From<&str> for UpdateChannel {
+    fn from(s: &str) -> Self {
+        Self::from_str_opt(Some(s))
+    }
+}
+
+impl From<String> for UpdateChannel {
+    fn from(s: String) -> Self {
+        Self::from_str_opt(Some(&s))
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, Clone)]
+enum PreId {
+    Numeric(u64),
+    AlphaNumeric(String),
+}
+
+impl PreId {
+    fn parse(s: &str) -> Self {
+        if !s.is_empty() && s.chars().all(|c| c.is_ascii_digit()) {
+            if let Ok(n) = s.parse::<u64>() {
+                return PreId::Numeric(n);
+            }
+        }
+        PreId::AlphaNumeric(s.to_string())
+    }
+}
+
+impl Ord for PreId {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        match (self, other) {
+            (PreId::Numeric(a), PreId::Numeric(b)) => a.cmp(b),
+            (PreId::Numeric(_), PreId::AlphaNumeric(_)) => std::cmp::Ordering::Less,
+            (PreId::AlphaNumeric(_), PreId::Numeric(_)) => std::cmp::Ordering::Greater,
+            (PreId::AlphaNumeric(a), PreId::AlphaNumeric(b)) => {
+                a.to_lowercase().cmp(&b.to_lowercase())
+            }
+        }
+    }
+}
+
+impl PartialOrd for PreId {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+struct ParsedSemVer {
+    core: Vec<u64>,
+    prerelease: Option<Vec<PreId>>,
+}
+
+impl ParsedSemVer {
+    fn parse(s: &str) -> Self {
+        let clean = s.trim().trim_start_matches(|c| c == 'v' || c == 'V');
+        let without_build = clean.split('+').next().unwrap_or(clean);
+
+        let mut parts = without_build.splitn(2, '-');
+        let core_str = parts.next().unwrap_or("");
+        let prerelease_str = parts.next();
+
+        let core: Vec<u64> = core_str
+            .split('.')
+            .map(|p| {
+                let digits: String = p.chars().take_while(|c| c.is_ascii_digit()).collect();
+                digits.parse::<u64>().unwrap_or(0)
+            })
+            .collect();
+
+        let prerelease = prerelease_str.and_then(|pre| {
+            let ids: Vec<PreId> = pre
+                .split('.')
+                .filter(|id| !id.is_empty())
+                .map(PreId::parse)
+                .collect();
+            if ids.is_empty() {
+                None
+            } else {
+                Some(ids)
+            }
+        });
+
+        ParsedSemVer { core, prerelease }
+    }
 }
 
 const EMBEDDED_MANIFEST: &str = include_str!("../../../release_manifest.json");
@@ -229,25 +359,140 @@ impl UpdateChecker {
     }
 
     pub fn compare_versions(a: &str, b: &str) -> std::cmp::Ordering {
-        let parse_parts = |s: &str| -> Vec<u64> {
-            let clean = s.trim().trim_start_matches('v').trim_start_matches('V');
-            clean
-                .split('.')
-                .filter_map(|part| part.split('-').next().unwrap_or("0").parse::<u64>().ok())
-                .collect()
-        };
-        let a_parts = parse_parts(a);
-        let b_parts = parse_parts(b);
-        let max_len = a_parts.len().max(b_parts.len());
+        let va = ParsedSemVer::parse(a);
+        let vb = ParsedSemVer::parse(b);
+
+        let max_len = va.core.len().max(vb.core.len());
         for i in 0..max_len {
-            let a_val = a_parts.get(i).copied().unwrap_or(0);
-            let b_val = b_parts.get(i).copied().unwrap_or(0);
+            let a_val = va.core.get(i).copied().unwrap_or(0);
+            let b_val = vb.core.get(i).copied().unwrap_or(0);
             match a_val.cmp(&b_val) {
                 std::cmp::Ordering::Equal => continue,
                 non_eq => return non_eq,
             }
         }
-        std::cmp::Ordering::Equal
+
+        // SemVer 2.0.0 rule 11.4: When major, minor, and patch are equal,
+        // a pre-release version has lower precedence than a normal version.
+        match (va.prerelease, vb.prerelease) {
+            (None, None) => std::cmp::Ordering::Equal,
+            (Some(_), None) => std::cmp::Ordering::Less,
+            (None, Some(_)) => std::cmp::Ordering::Greater,
+            (Some(pre_a), Some(pre_b)) => {
+                let min_len = pre_a.len().min(pre_b.len());
+                for i in 0..min_len {
+                    let ord = pre_a[i].cmp(&pre_b[i]);
+                    if ord != std::cmp::Ordering::Equal {
+                        return ord;
+                    }
+                }
+                pre_a.len().cmp(&pre_b.len())
+            }
+        }
+    }
+
+    pub fn is_draft(release: &serde_json::Value) -> bool {
+        release.get("draft").and_then(|d| d.as_bool()).unwrap_or(false)
+    }
+
+    pub fn is_alpha_release(release: &serde_json::Value) -> bool {
+        let is_prerelease = release
+            .get("prerelease")
+            .and_then(|p| p.as_bool())
+            .unwrap_or(false);
+        let target_commitish = release
+            .get("target_commitish")
+            .and_then(|s| s.as_str())
+            .unwrap_or("");
+        let tag_name = release
+            .get("tag_name")
+            .and_then(|s| s.as_str())
+            .unwrap_or("");
+        let title = release
+            .get("name")
+            .and_then(|s| s.as_str())
+            .unwrap_or("");
+
+        is_prerelease
+            || target_commitish.eq_ignore_ascii_case("alpha")
+            || tag_name.to_lowercase().contains("alpha")
+            || title.to_lowercase().contains("alpha")
+    }
+
+    pub fn has_setup_asset(release: &serde_json::Value) -> bool {
+        if let Some(assets) = release.get("assets").and_then(|a| a.as_array()) {
+            assets.iter().any(|asset| {
+                asset
+                    .get("name")
+                    .and_then(|n| n.as_str())
+                    .map_or(false, |name| name.eq_ignore_ascii_case("snapload-setup.exe"))
+            })
+        } else {
+            false
+        }
+    }
+
+    pub fn find_best_release<'a>(
+        releases: &'a [serde_json::Value],
+        channel: UpdateChannel,
+    ) -> Option<&'a serde_json::Value> {
+        let non_draft: Vec<&'a serde_json::Value> = releases
+            .iter()
+            .filter(|r| !Self::is_draft(r))
+            .collect();
+
+        match channel {
+            UpdateChannel::Stable => {
+                non_draft
+                    .iter()
+                    .copied()
+                    .find(|r| !Self::is_alpha_release(r) && Self::has_setup_asset(r))
+                    .or_else(|| {
+                        non_draft
+                            .iter()
+                            .copied()
+                            .find(|r| !Self::is_alpha_release(r))
+                    })
+            }
+            UpdateChannel::Alpha => {
+                let latest_alpha = non_draft
+                    .iter()
+                    .copied()
+                    .find(|r| Self::is_alpha_release(r) && Self::has_setup_asset(r))
+                    .or_else(|| {
+                        non_draft
+                            .iter()
+                            .copied()
+                            .find(|r| Self::is_alpha_release(r))
+                    });
+
+                let latest_stable = non_draft
+                    .iter()
+                    .copied()
+                    .find(|r| !Self::is_alpha_release(r) && Self::has_setup_asset(r))
+                    .or_else(|| {
+                        non_draft
+                            .iter()
+                            .copied()
+                            .find(|r| !Self::is_alpha_release(r))
+                    });
+
+                match (latest_alpha, latest_stable) {
+                    (Some(alpha), Some(stable)) => {
+                        let alpha_tag = alpha.get("tag_name").and_then(|t| t.as_str()).unwrap_or("");
+                        let stable_tag = stable.get("tag_name").and_then(|t| t.as_str()).unwrap_or("");
+                        if Self::compare_versions(stable_tag, alpha_tag) == std::cmp::Ordering::Greater {
+                            Some(stable)
+                        } else {
+                            Some(alpha)
+                        }
+                    }
+                    (Some(alpha), None) => Some(alpha),
+                    (None, Some(stable)) => Some(stable),
+                    (None, None) => None,
+                }
+            }
+        }
     }
 
     async fn get_github_token() -> Option<String> {
@@ -273,7 +518,8 @@ impl UpdateChecker {
         None
     }
 
-    pub async fn check_setup_update() -> SetupUpdateInfo {
+    pub async fn check_setup_update(channel: impl Into<UpdateChannel>) -> SetupUpdateInfo {
+        let channel = channel.into();
         let current_version = env!("CARGO_PKG_VERSION").to_string();
         let token = Self::get_github_token().await;
         let user_agent = format!("SnapLoad-Setup/{}", env!("CARGO_PKG_VERSION"));
@@ -287,7 +533,7 @@ impl UpdateChecker {
         if let Some(ref tok) = token {
             cmd.args(["-H", &format!("Authorization: Bearer {}", tok)]);
         }
-        cmd.arg("https://api.github.com/repos/DarkSkyee/snapload-windows/releases/latest");
+        cmd.arg("https://api.github.com/repos/DarkSkyee/snapload-windows/releases?per_page=30");
 
         let output = match timeout(Duration::from_secs(16), cmd.output()).await {
             Ok(Ok(out)) => out,
@@ -303,6 +549,7 @@ impl UpdateChecker {
                     published_at: None,
                     file_size_bytes: None,
                     error: Some(format!("Network error: {}", e)),
+                    channel: Some(channel.as_str().to_string()),
                 };
             }
             Err(_) => {
@@ -317,6 +564,7 @@ impl UpdateChecker {
                     published_at: None,
                     file_size_bytes: None,
                     error: Some("Request timed out checking GitHub releases".to_string()),
+                    channel: Some(channel.as_str().to_string()),
                 };
             }
         };
@@ -324,9 +572,25 @@ impl UpdateChecker {
         let json_str = String::from_utf8_lossy(&output.stdout);
         let val: serde_json::Value = serde_json::from_str(&json_str).unwrap_or(serde_json::Value::Null);
 
-        // If GitHub releases API returned an error message (such as "Not Found" for private repo)
-        // or curl failed, attempt fallback check via raw manifest on main branch
-        if val.get("message").is_some() || !output.status.success() {
+        let releases_opt: Option<Vec<serde_json::Value>> = if let Some(arr) = val.as_array() {
+            Some(arr.clone())
+        } else if val.is_object() && val.get("tag_name").is_some() {
+            Some(vec![val.clone()])
+        } else {
+            None
+        };
+
+        if releases_opt.is_none() || !output.status.success() {
+            // Fallback: check raw manifest from GitHub
+            let branch = match channel {
+                UpdateChannel::Alpha => "alpha",
+                UpdateChannel::Stable => "main",
+            };
+            let manifest_url = format!(
+                "https://raw.githubusercontent.com/DarkSkyee/snapload-windows/{}/release_manifest.json",
+                branch
+            );
+
             let mut manifest_cmd = tokio::process::Command::new("curl.exe");
             #[cfg(windows)]
             manifest_cmd.creation_flags(0x08000000);
@@ -335,26 +599,27 @@ impl UpdateChecker {
             if let Some(ref tok) = token {
                 manifest_cmd.args(["-H", &format!("Authorization: Bearer {}", tok)]);
             }
-            manifest_cmd.arg("https://raw.githubusercontent.com/DarkSkyee/snapload-windows/main/release_manifest.json");
+            manifest_cmd.arg(&manifest_url);
 
             if let Ok(Ok(man_out)) = timeout(Duration::from_secs(14), manifest_cmd.output()).await {
                 if man_out.status.success() {
                     let man_str = String::from_utf8_lossy(&man_out.stdout);
                     if let Ok(mv) = serde_json::from_str::<serde_json::Value>(&man_str) {
                         if let Some(ver) = mv.get("version").and_then(|v| v.as_str()) {
-                            let clean_latest = ver.trim_start_matches('v').trim_start_matches('V').to_string();
+                            let clean_latest = ver.trim_start_matches(|c| c == 'v' || c == 'V').to_string();
                             let is_newer = Self::compare_versions(&clean_latest, &current_version) == std::cmp::Ordering::Greater;
                             return SetupUpdateInfo {
                                 current_version: current_version.clone(),
                                 latest_version: clean_latest.clone(),
                                 update_available: is_newer,
                                 release_name: format!("SnapLoad Windows {}", clean_latest),
-                                release_notes: "Updated release build available from repository manifest.".to_string(),
+                                release_notes: format!("Updated {} release build available from repository manifest.", channel.as_str()),
                                 download_url: Some("https://github.com/DarkSkyee/snapload-windows/releases/latest/download/snapload-setup.exe".to_string()),
                                 asset_url: None,
                                 published_at: None,
                                 file_size_bytes: None,
                                 error: None,
+                                channel: Some(channel.as_str().to_string()),
                             };
                         }
                     }
@@ -379,73 +644,92 @@ impl UpdateChecker {
                 published_at: None,
                 file_size_bytes: None,
                 error: Some(friendly_err),
+                channel: Some(channel.as_str().to_string()),
             };
         }
 
-        let tag_name = val
-            .get("tag_name")
-            .and_then(|t| t.as_str())
-            .unwrap_or("")
-            .to_string();
-        let release_name = val
-            .get("name")
-            .and_then(|n| n.as_str())
-            .unwrap_or(&tag_name)
-            .to_string();
-        let release_notes = val
-            .get("body")
-            .and_then(|b| b.as_str())
-            .unwrap_or("")
-            .to_string();
-        let published_at = val
-            .get("published_at")
-            .and_then(|p| p.as_str())
-            .map(|s| s.to_string());
+        let releases = releases_opt.unwrap_or_default();
+        if let Some(best_rel) = Self::find_best_release(&releases, channel) {
+            let tag_name = best_rel
+                .get("tag_name")
+                .and_then(|t| t.as_str())
+                .unwrap_or("")
+                .to_string();
+            let release_name = best_rel
+                .get("name")
+                .and_then(|n| n.as_str())
+                .unwrap_or(&tag_name)
+                .to_string();
+            let release_notes = best_rel
+                .get("body")
+                .and_then(|b| b.as_str())
+                .unwrap_or("")
+                .to_string();
+            let published_at = best_rel
+                .get("published_at")
+                .and_then(|p| p.as_str())
+                .map(|s| s.to_string());
 
-        let clean_latest = tag_name.trim_start_matches('v').trim_start_matches('V').to_string();
-        let latest_version = if clean_latest.is_empty() {
-            current_version.clone()
-        } else {
-            clean_latest
-        };
+            let clean_latest = tag_name.trim_start_matches(|c| c == 'v' || c == 'V').to_string();
+            let latest_version = if clean_latest.is_empty() {
+                current_version.clone()
+            } else {
+                clean_latest
+            };
 
-        let mut download_url = None;
-        let mut asset_url = None;
-        let mut file_size_bytes = None;
+            let mut download_url = None;
+            let mut asset_url = None;
+            let mut file_size_bytes = None;
 
-        if let Some(assets) = val.get("assets").and_then(|a| a.as_array()) {
-            for asset in assets {
-                let name = asset.get("name").and_then(|n| n.as_str()).unwrap_or("");
-                if name.eq_ignore_ascii_case("snapload-setup.exe") {
-                    download_url = asset
-                        .get("browser_download_url")
-                        .and_then(|u| u.as_str())
-                        .map(|s| s.to_string());
-                    asset_url = asset
-                        .get("url")
-                        .and_then(|u| u.as_str())
-                        .map(|s| s.to_string());
-                    file_size_bytes = asset
-                        .get("size")
-                        .and_then(|s| s.as_u64());
-                    break;
+            if let Some(assets) = best_rel.get("assets").and_then(|a| a.as_array()) {
+                for asset in assets {
+                    let name = asset.get("name").and_then(|n| n.as_str()).unwrap_or("");
+                    if name.eq_ignore_ascii_case("snapload-setup.exe") {
+                        download_url = asset
+                            .get("browser_download_url")
+                            .and_then(|u| u.as_str())
+                            .map(|s| s.to_string());
+                        asset_url = asset
+                            .get("url")
+                            .and_then(|u| u.as_str())
+                            .map(|s| s.to_string());
+                        file_size_bytes = asset
+                            .get("size")
+                            .and_then(|s| s.as_u64());
+                        break;
+                    }
                 }
             }
-        }
 
-        let is_newer = Self::compare_versions(&latest_version, &current_version) == std::cmp::Ordering::Greater;
+            let is_newer = Self::compare_versions(&latest_version, &current_version) == std::cmp::Ordering::Greater;
 
-        SetupUpdateInfo {
-            current_version,
-            latest_version,
-            update_available: is_newer,
-            release_name,
-            release_notes,
-            download_url,
-            asset_url,
-            published_at,
-            file_size_bytes,
-            error: None,
+            SetupUpdateInfo {
+                current_version,
+                latest_version,
+                update_available: is_newer,
+                release_name,
+                release_notes,
+                download_url,
+                asset_url,
+                published_at,
+                file_size_bytes,
+                error: None,
+                channel: Some(channel.as_str().to_string()),
+            }
+        } else {
+            SetupUpdateInfo {
+                current_version: current_version.clone(),
+                latest_version: current_version,
+                update_available: false,
+                release_name: String::new(),
+                release_notes: String::new(),
+                download_url: None,
+                asset_url: None,
+                published_at: None,
+                file_size_bytes: None,
+                error: Some(format!("No matching releases found on the {} channel.", channel.as_str())),
+                channel: Some(channel.as_str().to_string()),
+            }
         }
     }
 
@@ -643,6 +927,132 @@ mod tests {
     fn test_compare_versions_less() {
         assert_eq!(UpdateChecker::compare_versions("1.0.0", "1.0.1"), std::cmp::Ordering::Less);
         assert_eq!(UpdateChecker::compare_versions("v1.0.5", "v1.1.0"), std::cmp::Ordering::Less);
+    }
+
+    #[test]
+    fn test_compare_versions_prerelease() {
+        // SemVer pre-release vs normal release
+        assert_eq!(UpdateChecker::compare_versions("1.0.0-alpha.1", "1.0.0"), std::cmp::Ordering::Less);
+        assert_eq!(UpdateChecker::compare_versions("1.0.0", "1.0.0-alpha.1"), std::cmp::Ordering::Greater);
+        assert_eq!(UpdateChecker::compare_versions("v1.0.0-alpha.1", "1.0.0"), std::cmp::Ordering::Less);
+        assert_eq!(UpdateChecker::compare_versions("1.0.0-rc.1", "1.0.0"), std::cmp::Ordering::Less);
+
+        // Pre-release versions comparison
+        assert_eq!(UpdateChecker::compare_versions("1.0.0-alpha.2", "1.0.0-alpha.1"), std::cmp::Ordering::Greater);
+        assert_eq!(UpdateChecker::compare_versions("1.0.0-alpha.1", "1.0.0-alpha.2"), std::cmp::Ordering::Less);
+        assert_eq!(UpdateChecker::compare_versions("1.0.0-alpha.1", "1.0.0-alpha.1"), std::cmp::Ordering::Equal);
+
+        // Numeric pre-release identifiers compared numerically
+        assert_eq!(UpdateChecker::compare_versions("1.0.0-alpha.2", "1.0.0-alpha.10"), std::cmp::Ordering::Less);
+        assert_eq!(UpdateChecker::compare_versions("1.0.0-alpha.10", "1.0.0-alpha.2"), std::cmp::Ordering::Greater);
+
+        // Pre-release field length and alphabetical order
+        assert_eq!(UpdateChecker::compare_versions("1.0.0-alpha", "1.0.0-alpha.1"), std::cmp::Ordering::Less);
+        assert_eq!(UpdateChecker::compare_versions("1.0.0-beta.1", "1.0.0-alpha.9"), std::cmp::Ordering::Greater);
+        assert_eq!(UpdateChecker::compare_versions("1.0.0-alpha", "1.0.0-ALPHA"), std::cmp::Ordering::Equal);
+
+        // Cross-version comparison with pre-releases
+        assert_eq!(UpdateChecker::compare_versions("1.0.1-alpha.1", "1.0.0"), std::cmp::Ordering::Greater);
+        assert_eq!(UpdateChecker::compare_versions("1.0.0", "1.0.1-alpha.1"), std::cmp::Ordering::Less);
+        assert_eq!(UpdateChecker::compare_versions("2.0.0-alpha.1", "1.9.9"), std::cmp::Ordering::Greater);
+
+        // Build metadata ignored
+        assert_eq!(UpdateChecker::compare_versions("1.0.0+build1", "1.0.0+build2"), std::cmp::Ordering::Equal);
+    }
+
+    #[test]
+    fn test_update_channel_parsing() {
+        assert_eq!(UpdateChannel::from_str_opt(Some("stable")), UpdateChannel::Stable);
+        assert_eq!(UpdateChannel::from_str_opt(Some("STABLE")), UpdateChannel::Stable);
+        assert_eq!(UpdateChannel::from_str_opt(Some("alpha")), UpdateChannel::Alpha);
+        assert_eq!(UpdateChannel::from_str_opt(Some("ALPHA")), UpdateChannel::Alpha);
+        assert_eq!(UpdateChannel::from_str_opt(Some("  alpha  ")), UpdateChannel::Alpha);
+        assert_eq!(UpdateChannel::from_str_opt(None), UpdateChannel::Stable);
+        assert_eq!(UpdateChannel::from_str_opt(Some("beta")), UpdateChannel::Stable);
+        assert_eq!(UpdateChannel::from_str_opt(Some("")), UpdateChannel::Stable);
+
+        assert_eq!(UpdateChannel::default(), UpdateChannel::Stable);
+        assert_eq!(UpdateChannel::Stable.as_str(), "stable");
+        assert_eq!(UpdateChannel::Alpha.as_str(), "alpha");
+    }
+
+    #[test]
+    fn test_release_detection_and_filtering() {
+        let draft_rel = serde_json::json!({
+            "tag_name": "v1.2.0",
+            "name": "SnapLoad 1.2.0 Draft",
+            "draft": true,
+            "prerelease": false,
+            "assets": [{ "name": "snapload-setup.exe" }]
+        });
+        assert!(UpdateChecker::is_draft(&draft_rel));
+
+        let alpha_rel_1 = serde_json::json!({
+            "tag_name": "v1.1.0-alpha.1",
+            "name": "SnapLoad 1.1.0 Alpha 1",
+            "draft": false,
+            "prerelease": true,
+            "target_commitish": "alpha",
+            "assets": [{ "name": "snapload-setup.exe" }]
+        });
+        assert!(UpdateChecker::is_alpha_release(&alpha_rel_1));
+        assert!(UpdateChecker::has_setup_asset(&alpha_rel_1));
+
+        let alpha_rel_no_asset = serde_json::json!({
+            "tag_name": "v1.2.0-alpha.2",
+            "name": "SnapLoad 1.2.0 Alpha 2",
+            "draft": false,
+            "prerelease": false,
+            "target_commitish": "alpha",
+            "assets": []
+        });
+        assert!(UpdateChecker::is_alpha_release(&alpha_rel_no_asset));
+        assert!(!UpdateChecker::has_setup_asset(&alpha_rel_no_asset));
+
+        let stable_rel = serde_json::json!({
+            "tag_name": "v1.0.0",
+            "name": "SnapLoad 1.0.0 Official",
+            "draft": false,
+            "prerelease": false,
+            "target_commitish": "main",
+            "assets": [{ "name": "snapload-setup.exe" }]
+        });
+        assert!(!UpdateChecker::is_alpha_release(&stable_rel));
+        assert!(UpdateChecker::has_setup_asset(&stable_rel));
+
+        let releases = vec![
+            draft_rel,
+            alpha_rel_1.clone(),
+            stable_rel.clone(),
+        ];
+
+        // Stable channel must skip draft and alpha releases, picking stable_rel
+        let best_stable = UpdateChecker::find_best_release(&releases, UpdateChannel::Stable);
+        assert!(best_stable.is_some());
+        assert_eq!(best_stable.unwrap()["tag_name"], "v1.0.0");
+
+        // Alpha channel picks alpha_rel_1 since 1.1.0-alpha.1 > 1.0.0
+        let best_alpha = UpdateChecker::find_best_release(&releases, UpdateChannel::Alpha);
+        assert!(best_alpha.is_some());
+        assert_eq!(best_alpha.unwrap()["tag_name"], "v1.1.0-alpha.1");
+
+        // When a newer stable release exists (e.g. 2.0.0 vs alpha 1.1.0-alpha.1), alpha channel picks stable
+        let new_stable_rel = serde_json::json!({
+            "tag_name": "v2.0.0",
+            "name": "SnapLoad 2.0.0 Official",
+            "draft": false,
+            "prerelease": false,
+            "target_commitish": "main",
+            "assets": [{ "name": "snapload-setup.exe" }]
+        });
+        let releases_with_newer_stable = vec![
+            new_stable_rel.clone(),
+            alpha_rel_1.clone(),
+            stable_rel.clone(),
+        ];
+        let best_alpha_newer_stable = UpdateChecker::find_best_release(&releases_with_newer_stable, UpdateChannel::Alpha);
+        assert!(best_alpha_newer_stable.is_some());
+        assert_eq!(best_alpha_newer_stable.unwrap()["tag_name"], "v2.0.0");
     }
 
     #[test]
