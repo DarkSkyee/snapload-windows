@@ -35,6 +35,9 @@
   <a href="https://github.com/DarkSkyee/snapload-windows/releases/latest">
     <img src="https://img.shields.io/badge/%E2%AC%87%EF%B8%8F%20Download-Latest%20Release-6366F1?style=for-the-badge&logo=windows&logoColor=white" height="42" alt="Download Latest Release" />
   </a>
+  <a href="https://github.com/DarkSkyee/snapload-android">
+    <img src="https://img.shields.io/badge/%F0%9F%93%B1%20Also%20Available-SnapLoad%20for%20Android-3DDC84?style=for-the-badge&logo=android&logoColor=white" height="42" alt="SnapLoad for Android" />
+  </a>
 </p>
 
 <br/>
@@ -218,6 +221,17 @@ powershell -ExecutionPolicy Bypass -File scripts\\build\\build_all.ps1
 - **[Browser Compatibility](docs/BROWSER_COMPATIBILITY.md)**: Chromium MV3 vs Firefox WebExtensions integration details.
 - **[Update System Specification](docs/UPDATE_SYSTEM.md)**: Cryptographic SHA-256 validation and atomic replacement workflow.
 - **[Development Guide](docs/DEVELOPMENT.md)**: Testing guidelines and project workflows.
+
+---
+
+## 🌐 SnapLoad Ecosystem
+
+Looking for SnapLoad on mobile? Check out the Android companion app:
+
+| Platform | Project | Features | Tech Stack |
+| :--- | :--- | :--- | :--- |
+| 💻 **Windows** | **SnapLoad Windows** *(Current)* | Instant in-browser downloads, YouTube / Spotify / SoundCloud buttons, zero Electron | Rust, Tauri 2, Chromium & Firefox Extension |
+| 🤖 **Android** | [**SnapLoad Android**](https://github.com/DarkSkyee/snapload-android) | On-device offline conversion, share sheet integration, Material 3 Expressive UI | Kotlin, Jetpack Compose, Python, yt-dlp, FFmpeg |
 
 ---
 
